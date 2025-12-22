@@ -11,6 +11,51 @@ import (
 	"github.com/gotk3/gotk3/gtk"
 )
 
+// ResourceGetter interface for accessing embedded resources
+// This allows the stickynotes package to access embedded resources without importing main
+type ResourceGetter interface {
+	GetEmbeddedUI(filename string) (string, error)
+	GetEmbeddedCSS(filename string) (string, error)
+	GetEmbeddedIcon(iconPath string) ([]byte, error)
+}
+
+var globalResourceGetter ResourceGetter
+
+// SetResourceGetter sets the global resource getter (called from main package)
+func SetResourceGetter(getter ResourceGetter) {
+	globalResourceGetter = getter
+}
+
+// getEmbeddedUI tries to get UI content from embedded resources, falls back to file system
+func getEmbeddedUI(filename string) (string, error) {
+	if globalResourceGetter != nil {
+		if content, err := globalResourceGetter.GetEmbeddedUI(filename); err == nil {
+			return content, nil
+		}
+	}
+	// Fallback to file system
+	path := GetBasePath()
+	uiPath := filepath.Join(path, filename)
+	data, err := os.ReadFile(uiPath)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// getEmbeddedIcon tries to get icon from embedded resources, falls back to file system
+func getEmbeddedIcon(iconPath string) ([]byte, error) {
+	if globalResourceGetter != nil {
+		if data, err := globalResourceGetter.GetEmbeddedIcon(iconPath); err == nil {
+			return data, nil
+		}
+	}
+	// Fallback to file system
+	path := GetBasePath()
+	iconFilePath := filepath.Join(path, "Icons", iconPath)
+	return os.ReadFile(iconFilePath)
+}
+
 // Helper function for absolute value of integers
 func absInt(x int) int {
 	if x < 0 {
@@ -19,8 +64,44 @@ func absInt(x int) int {
 	return x
 }
 
-// isWayland checks if the application is running on Wayland
-func isWayland() bool {
+// removePixbufProperties removes pixbuf properties from UI XML to prevent GTK Builder
+// from trying to load icons from file system. Icons will be loaded manually after widgets are created.
+func removePixbufProperties(xml string) string {
+	// Use regex to remove <property name="pixbuf">...</property> blocks
+	// Pattern matches: <property name="pixbuf">Icons/...</property>
+	lines := strings.Split(xml, "\n")
+	var result []string
+	skipNext := false
+	for _, line := range lines {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+
+		// Check if this line contains pixbuf property opening
+		if strings.Contains(line, `<property name="pixbuf">`) {
+			// Check if the closing tag is on the same line
+			if strings.Contains(line, `</property>`) {
+				// Single line: <property name="pixbuf">Icons/add.png</property>
+				continue
+			}
+			// Multi-line: skip this line and the next (which has the path and closing tag)
+			skipNext = true
+			continue
+		}
+
+		// Skip lines that are just the icon path and closing tag
+		if strings.Contains(line, `Icons/`) && strings.Contains(line, `</property>`) {
+			continue
+		}
+
+		result = append(result, line)
+	}
+	return strings.Join(result, "\n")
+}
+
+// IsWayland checks if the application is running on Wayland
+func IsWayland() bool {
 	// Check XDG_SESSION_TYPE environment variable
 	if sessionType := os.Getenv("XDG_SESSION_TYPE"); sessionType == "wayland" {
 		return true
@@ -36,13 +117,31 @@ func isWayland() bool {
 
 // LoadGlobalCSS loads the global CSS stylesheet
 func LoadGlobalCSS() error {
-	path := filepath.Join(getBasePath(), "style_global.css")
 	cssProvider, err := gtk.CssProviderNew()
 	if err != nil {
 		return err
 	}
 
-	err = cssProvider.LoadFromPath(path)
+	// Try to load from embedded resources first
+	var cssContent string
+	if globalResourceGetter != nil {
+		if content, err := globalResourceGetter.GetEmbeddedCSS("style_global.css"); err == nil {
+			cssContent = content
+		}
+	}
+
+	// Fallback to file system if embedded not available
+	if cssContent == "" {
+		path := filepath.Join(getBasePath(), "style_global.css")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		cssContent = string(data)
+	}
+
+	// Load from in-memory data
+	err = cssProvider.LoadFromData(cssContent)
 	if err != nil {
 		return err
 	}
@@ -106,12 +205,27 @@ func NewStickyNote(note *Note) *StickyNote {
 func (sn *StickyNote) buildNote() {
 	var err error
 
-	// Load UI file
-	uiPath := filepath.Join(sn.Path, "StickyNotes.ui")
-	sn.Builder, err = gtk.BuilderNewFromFile(uiPath)
+	// Load UI file from embedded resources (in-memory)
+	uiContent, err := getEmbeddedUI("StickyNotes.ui")
 	if err != nil {
-		fmt.Printf("Error loading UI file: %v\n", err)
-		return
+		// Fallback to file system if embedded not available
+		uiPath := filepath.Join(sn.Path, "StickyNotes.ui")
+		sn.Builder, err = gtk.BuilderNewFromFile(uiPath)
+		if err != nil {
+			fmt.Printf("Error loading UI file: %v\n", err)
+			return
+		}
+	} else {
+		// Remove pixbuf properties from XML to prevent GTK Builder from trying to load icons
+		// We'll load them manually after the builder creates the widgets
+		uiContent = removePixbufProperties(uiContent)
+
+		// Use in-memory API
+		sn.Builder, err = gtk.BuilderNewFromString(uiContent)
+		if err != nil {
+			fmt.Printf("Error loading UI from embedded resources: %v\n", err)
+			return
+		}
 	}
 
 	// Get main window
@@ -136,6 +250,14 @@ func (sn *StickyNote) buildNote() {
 	sn.EResizeR, _ = getObject[*gtk.EventBox](sn.Builder, "eResizeR")
 	sn.MoveBox1, _ = getObject[*gtk.EventBox](sn.Builder, "movebox1")
 	sn.MoveBox2, _ = getObject[*gtk.EventBox](sn.Builder, "movebox2")
+
+	// Get imgDropdown (used by bMenu button)
+	imgDropdown, _ := getObject[*gtk.Image](sn.Builder, "imgDropdown")
+
+	// Load icons from embedded resources (since UI file references Icons/ paths)
+	// GTK Builder will fail to load these from file system when using BuilderNewFromString
+	// So we manually set them using embedded data
+	sn.loadIconsFromEmbedded(imgDropdown)
 
 	// Connect signals
 	sn.BAdd.Connect("clicked", sn.onAdd)
@@ -172,7 +294,17 @@ func (sn *StickyNote) buildNote() {
 			}
 		}
 	} else {
-		sn.LastKnownPos = [2]int{10, 10}
+		// For new notes, use a cascaded position to avoid overlapping
+		// Calculate offset based on note index to prevent all notes at same position
+		noteIndex := 0
+		for i, note := range sn.NoteSet.Notes {
+			if note == sn.Note {
+				noteIndex = i
+				break
+			}
+		}
+		restorePos = [2]int{10 + noteIndex*30, 10 + noteIndex*30}
+		sn.LastKnownPos = restorePos
 	}
 
 	if size, ok := sn.Note.Properties["size"].([]interface{}); ok && len(size) >= 2 {
@@ -193,6 +325,11 @@ func (sn *StickyNote) buildNote() {
 	// Set widget names to match CSS selectors
 	sn.WinMain.SetName("main-window")
 	sn.TxtNote.SetName("txt-note")
+
+	// Set unique window title for identification via D-Bus
+	// Format: "Sticky Notes - <UUID>" - this allows us to match windows by title
+	// The title is not visible in the UI (window is undecorated) but is available via D-Bus
+	sn.WinMain.SetTitle(fmt.Sprintf("Sticky Notes - %s", sn.Note.UUID[:8]))
 
 	// Initialize Provider: Create the CssProvider and add it to the context NOW
 	// This must be done BEFORE loading data and BEFORE ShowAll()
@@ -234,13 +371,11 @@ func (sn *StickyNote) buildNote() {
 		// Wait 300ms for windows to be fully realized and get their sizes
 		glib.TimeoutAdd(300, func() bool {
 
-			// Try to get window ID if not assigned yet
+			// Try to get window ID if not assigned yet (match by title)
 			if sn.WindowID == 0 {
-				// Try a match by size
-				w, h := sn.WinMain.GetSize()
+				expectedTitle := fmt.Sprintf("Sticky Notes - %s", sn.Note.UUID[:8])
 				windows, err := GetCurrentProcessWindows()
 				if err == nil && windows != nil {
-
 					for _, win := range windows {
 						// Skip if already assigned to another note
 						alreadyAssigned := false
@@ -254,23 +389,16 @@ func (sn *StickyNote) buildNote() {
 							continue
 						}
 
-						// Get details to check actual size (List() often returns 0,0)
+						// Get details to check title
 						details, err := GetWindowDetails(win.ID)
 						if err == nil && details != nil {
-
-							// Match by size (within 10 pixels)
-							if absInt(details.Width-w) < 10 && absInt(details.Height-h) < 10 {
+							// Match by title (exact match)
+							if details.Title == expectedTitle {
 								sn.WindowID = win.ID
 								break
-							} else {
 							}
-						} else {
 						}
 					}
-
-					if sn.WindowID == 0 {
-					}
-				} else {
 				}
 			}
 
@@ -285,8 +413,15 @@ func (sn *StickyNote) buildNote() {
 				}
 			} else {
 				// Fallback to GTK Move() (might not work on Wayland but worth trying)
-				sn.WinMain.Move(restorePos[0], restorePos[1])
+				// Also try to move immediately on X11 to prevent appearing at (0,0)
+				if !IsWindowCallsAvailable() {
+					sn.WinMain.Move(restorePos[0], restorePos[1])
+				}
 				sn.WinMain.SetOpacity(1.0) // Make window visible after moving
+				// On Wayland, if we still don't have window ID, try GTK Move as last resort
+				if IsWindowCallsAvailable() {
+					sn.WinMain.Move(restorePos[0], restorePos[1])
+				}
 			}
 
 			return false // Don't repeat
@@ -336,6 +471,7 @@ func (sn *StickyNote) buildNote() {
 }
 
 // assignWindowID gets and stores the window ID for this note from window-calls extension
+// Matches windows by unique title: "Sticky Notes - <UUID>"
 func (sn *StickyNote) assignWindowID() {
 	if sn.WindowID != 0 {
 		// Already assigned
@@ -351,15 +487,8 @@ func (sn *StickyNote) assignWindowID() {
 		return
 	}
 
-	// Get current window size and position for matching
-	w, h := sn.WinMain.GetSize()
-	expectedX, expectedY := sn.LastKnownPos[0], sn.LastKnownPos[1]
-
-	// Try to find the best matching window
-	bestMatch := struct {
-		windowID uint32
-		score    int
-	}{windowID: 0, score: 0}
+	// Match by unique title
+	expectedTitle := fmt.Sprintf("Sticky Notes - %s", sn.Note.UUID[:8])
 
 	for _, win := range windows {
 		// Skip if this window ID is already assigned to another note
@@ -374,64 +503,154 @@ func (sn *StickyNote) assignWindowID() {
 			continue
 		}
 
-		// Use the window info directly from ListWindows (already has position and size)
-		// This avoids an extra D-Bus call to GetWindowDetails
-		details := &WindowDetails{
-			ID:      win.ID,
-			PID:     win.PID,
-			X:       win.X,
-			Y:       win.Y,
-			Width:   win.Width,
-			Height:  win.Height,
-			WMClass: win.WMClass,
-			Title:   win.Title,
-		}
-
-		// If position/size are 0, try to get details (might not be in List response)
-		if details.Width == 0 && details.Height == 0 {
-			detailsFromDBus, err := GetWindowDetails(win.ID)
-			if err != nil || detailsFromDBus == nil {
-				continue
+		// Get details to check title (List() might not have full title info)
+		details, err := GetWindowDetails(win.ID)
+		if err != nil || details == nil {
+			// Fallback: try to match using title from List() if available
+			if win.Title == expectedTitle {
+				sn.WindowID = win.ID
+				return
 			}
-			details = detailsFromDBus
+			continue
 		}
 
-		// Calculate match score
-		score := 0
-		// Size match (within 10 pixels) = 10 points
-		if absInt(details.Width-w) < 10 && absInt(details.Height-h) < 10 {
-			score += 10
+		// Match by title (exact match)
+		if details.Title == expectedTitle {
+			sn.WindowID = win.ID
+			return
 		}
-		// Position match (within 50 pixels) = 5 points
-		if expectedX != 0 || expectedY != 0 {
-			if absInt(details.X-expectedX) < 50 && absInt(details.Y-expectedY) < 50 {
-				score += 5
-			}
-		}
-
-		if score > bestMatch.score {
-			bestMatch.windowID = win.ID
-			bestMatch.score = score
-		}
-	}
-
-	if bestMatch.windowID != 0 {
-		sn.WindowID = bestMatch.windowID
 	}
 }
 
 func (sn *StickyNote) Show() {
 	if sn.WinMain != nil {
-		sn.UpdateNote()
+		// IMPORTANT: Save LastKnownPos BEFORE calling UpdateNote(), because UpdateNote()
+		// might reset it if the window is hidden (GetPosition returns 0,0)
+		savedLastKnownPos := sn.LastKnownPos
+
+		// Don't call UpdateNote() here - it will reset LastKnownPos if window is hidden
+		// We'll call it after the window is shown and positioned
+
 		// Reload CSS when showing existing note to ensure correct colors
 		sn.LoadCSS()
 		sn.UpdateFont()
+
+		// Ensure unique window title is set (in case it was lost)
+		sn.WinMain.SetTitle(fmt.Sprintf("Sticky Notes - %s", sn.Note.UUID[:8]))
+
+		// Restore saved position and size (same logic as buildNote)
+		restorePos := [2]int{10, 10}
+
+		if pos, ok := sn.Note.Properties["position"].([]interface{}); ok && len(pos) >= 2 {
+			if x, ok := pos[0].(float64); ok {
+				if y, ok := pos[1].(float64); ok {
+					restorePos = [2]int{int(x), int(y)}
+					sn.LastKnownPos = [2]int{int(x), int(y)}
+				}
+			}
+		} else {
+			// If no saved position in Properties, use savedLastKnownPos (from before UpdateNote)
+			// Check if savedLastKnownPos is meaningful (not default values)
+			if (savedLastKnownPos[0] != 0 && savedLastKnownPos[1] != 0) &&
+				(savedLastKnownPos[0] != 10 || savedLastKnownPos[1] != 10) {
+				restorePos = savedLastKnownPos
+				sn.LastKnownPos = savedLastKnownPos // Restore it
+			} else {
+				// Calculate offset based on note index to prevent cascading
+				noteIndex := 0
+				for i, note := range sn.NoteSet.Notes {
+					if note == sn.Note {
+						noteIndex = i
+						break
+					}
+				}
+				restorePos = [2]int{10 + noteIndex*30, 10 + noteIndex*30}
+				sn.LastKnownPos = restorePos
+			}
+		}
+
+		if size, ok := sn.Note.Properties["size"].([]interface{}); ok && len(size) >= 2 {
+			if w, ok := size[0].(float64); ok {
+				if h, ok := size[1].(float64); ok {
+					sn.WinMain.Resize(int(w), int(h))
+					sn.LastKnownSize = [2]int{int(w), int(h)}
+				}
+			}
+		}
+
+		// Strategy: Make window invisible, show it, move it, then make it visible
+		// This prevents the visual "jump" from default position to saved position
+		// Use same logic as buildNote()
+		sn.WinMain.SetOpacity(0.0)        // Make window invisible
+		sn.WinMain.SetSkipPagerHint(true) // Same as buildNote()
 		sn.WinMain.ShowAll()
 
-		// If window ID not assigned yet, try to assign it
-		if IsWindowCallsAvailable() && sn.WindowID == 0 {
-			glib.TimeoutAdd(500, func() bool {
-				sn.assignWindowID()
+		// Restore position after showing (same logic as buildNote)
+		if IsWindowCallsAvailable() {
+			// Wait 300ms for windows to be fully realized and get their sizes (same as buildNote)
+			glib.TimeoutAdd(300, func() bool {
+				// Try to get window ID if not assigned yet (match by title)
+				if sn.WindowID == 0 {
+					expectedTitle := fmt.Sprintf("Sticky Notes - %s", sn.Note.UUID[:8])
+					windows, err := GetCurrentProcessWindows()
+					if err == nil && windows != nil {
+						for _, win := range windows {
+							// Skip if already assigned to another note
+							alreadyAssigned := false
+							for _, otherNote := range sn.NoteSet.Notes {
+								if otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID && otherNote != sn.Note {
+									alreadyAssigned = true
+									break
+								}
+							}
+							if alreadyAssigned {
+								continue
+							}
+
+							// Get details to check title
+							details, err := GetWindowDetails(win.ID)
+							if err == nil && details != nil {
+								// Match by title (exact match)
+								if details.Title == expectedTitle {
+									sn.WindowID = win.ID
+									break
+								}
+							}
+						}
+					}
+				}
+
+				// Move window to saved position (same logic as buildNote)
+				if sn.WindowID != 0 {
+					err := MoveWindow(sn.WindowID, restorePos[0], restorePos[1])
+					if err == nil {
+						sn.WinMain.SetOpacity(1.0) // Make window visible after moving
+						// Update note after positioning
+						sn.UpdateNote()
+					} else {
+						// Fallback to GTK Move() (might not work on Wayland but worth trying)
+						sn.WinMain.Move(restorePos[0], restorePos[1])
+						sn.WinMain.SetOpacity(1.0) // Make window visible after moving
+						// Update note after positioning
+						sn.UpdateNote()
+					}
+				} else {
+					// Fallback to GTK Move() (might not work on Wayland but worth trying)
+					sn.WinMain.Move(restorePos[0], restorePos[1])
+					sn.WinMain.SetOpacity(1.0) // Make window visible after moving
+					// Update note after positioning
+					sn.UpdateNote()
+				}
+
+				return false // Don't repeat
+			})
+		} else {
+			// On X11 or extension not available, use GTK Move() immediately (same as buildNote)
+			glib.IdleAdd(func() bool {
+				sn.WinMain.Move(restorePos[0], restorePos[1])
+				sn.WinMain.SetOpacity(1.0) // Make window visible after moving
+				// Update note after positioning
+				sn.UpdateNote()
 				return false // Don't repeat
 			})
 		}
@@ -442,6 +661,9 @@ func (sn *StickyNote) Show() {
 
 func (sn *StickyNote) Hide() {
 	if sn.WinMain != nil {
+		// Reset WindowID because it will be invalid after hiding
+		// The window will get a new ID when shown again, and we'll match it by title
+		sn.WindowID = 0
 		sn.WinMain.Hide()
 	}
 }
@@ -529,6 +751,60 @@ func (sn *StickyNote) onDelete() {
 
 func (sn *StickyNote) onLockClicked() {
 	sn.SetLockedState(!sn.Locked)
+}
+
+// loadIconsFromEmbedded loads icons from embedded resources and sets them on the image widgets
+func (sn *StickyNote) loadIconsFromEmbedded(imgDropdown *gtk.Image) {
+	iconMap := map[*gtk.Image]string{
+		sn.ImgAdd:     "add.png",
+		sn.ImgClose:   "close.png",
+		sn.ImgLock:    "lock.png",
+		sn.ImgUnlock:  "unlock.png",
+		sn.ImgResizeR: "resizer.png",
+	}
+
+	// Add dropdown/menu icon if available
+	if imgDropdown != nil {
+		iconMap[imgDropdown] = "menu.png"
+	}
+
+	for img, iconName := range iconMap {
+		if img == nil {
+			continue
+		}
+		iconData, err := getEmbeddedIcon(iconName)
+		if err != nil {
+			// Fallback: try to load from file system
+			iconPath := filepath.Join(sn.Path, "Icons", iconName)
+			if _, err := os.Stat(iconPath); err == nil {
+				if pixbuf, err := gdk.PixbufNewFromFile(iconPath); err == nil {
+					img.SetFromPixbuf(pixbuf)
+				}
+			}
+			continue
+		}
+
+		// Load from embedded bytes using PixbufLoader
+		loader, err := gdk.PixbufLoaderNew()
+		if err != nil {
+			continue
+		}
+
+		if _, err := loader.Write(iconData); err != nil {
+			loader.Close()
+			continue
+		}
+
+		// Close loader to finalize pixbuf
+		if err := loader.Close(); err != nil {
+			continue
+		}
+
+		pixbuf, err := loader.GetPixbuf()
+		if err == nil && pixbuf != nil {
+			img.SetFromPixbuf(pixbuf)
+		}
+	}
 }
 
 func (sn *StickyNote) SetLockedState(locked bool) {
@@ -644,7 +920,7 @@ func (sn *StickyNote) PopulateMenu() {
 	}
 
 	// Always on top (disabled on Wayland as it doesn't work)
-	if !isWayland() {
+	if !IsWayland() {
 		aot, _ := gtk.CheckMenuItemNewWithLabel("Always on top")
 		aot.Connect("toggled", func() {
 			sn.WinMain.SetKeepAbove(aot.GetActive())
@@ -748,14 +1024,23 @@ func (sn *StickyNote) onPopupMenu() {
 }
 
 func (sn *StickyNote) LoadCSS() {
-	// Load CSS template
-	cssPath := filepath.Join(sn.Path, "style.css")
-	cssData, err := os.ReadFile(cssPath)
-	if err != nil {
-		return
+	// Load CSS template from embedded resources or file system
+	var cssTemplate string
+	if globalResourceGetter != nil {
+		if content, err := globalResourceGetter.GetEmbeddedCSS("style.css"); err == nil {
+			cssTemplate = content
+		}
 	}
 
-	cssTemplate := string(cssData)
+	// Fallback to file system if embedded not available
+	if cssTemplate == "" {
+		cssPath := filepath.Join(sn.Path, "style.css")
+		cssData, err := os.ReadFile(cssPath)
+		if err != nil {
+			return
+		}
+		cssTemplate = string(cssData)
+	}
 
 	// Get colors from category
 	// Always try to get category properties, even if category is empty (will use default)
@@ -871,15 +1156,6 @@ func getObject[T any](builder *gtk.Builder, name string) (T, error) {
 }
 
 func getBasePath() string {
-	// First, check if embedded resources are available (set by main package)
-	if embeddedPath := os.Getenv("GO_INDICATOR_STICKYNOTES_EMBEDDED_PATH"); embeddedPath != "" {
-		// Verify embedded resources are actually there
-		uiPath := filepath.Join(embeddedPath, "StickyNotes.ui")
-		if info, err := os.Stat(uiPath); err == nil && !info.IsDir() {
-			return embeddedPath
-		}
-	}
-
 	// Try to get path from executable
 	if exe, err := os.Executable(); err == nil {
 		dir := filepath.Dir(exe)

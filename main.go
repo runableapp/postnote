@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"indicator-stickynotes/stickynotes"
@@ -15,6 +16,21 @@ import (
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
 )
+
+// embeddedResourceGetter implements stickynotes.ResourceGetter interface
+type embeddedResourceGetter struct{}
+
+func (g *embeddedResourceGetter) GetEmbeddedUI(filename string) (string, error) {
+	return GetEmbeddedUI(filename)
+}
+
+func (g *embeddedResourceGetter) GetEmbeddedCSS(filename string) (string, error) {
+	return GetEmbeddedCSS(filename)
+}
+
+func (g *embeddedResourceGetter) GetEmbeddedIcon(iconPath string) ([]byte, error) {
+	return GetEmbeddedIcon(iconPath)
+}
 
 // IndicatorStickyNotes manages the system tray indicator
 type IndicatorStickyNotes struct {
@@ -33,27 +49,9 @@ func main() {
 	// Initialize GTK
 	gtk.Init(nil)
 
-	// Initialize embedded resources (extracts to temp directory)
-	// This allows the app to work as a single binary
-	embeddedPath, err := initEmbeddedResources()
-	if err != nil {
-		// If embedding fails, continue - will fall back to file system
-		fmt.Printf("Warning: Failed to initialize embedded resources: %v\n", err)
-		fmt.Printf("Will try to load resources from file system.\n")
-	} else {
-		// Set the embedded path so getBasePath can find it
-		// We'll modify getBasePath to check for embedded resources first
-		fmt.Printf("Using embedded resources from: %s\n", embeddedPath)
-		// Store in environment variable so stickynotes package can access it
-		os.Setenv("GO_INDICATOR_STICKYNOTES_EMBEDDED_PATH", embeddedPath)
-	}
-
-	// Ensure cleanup of embedded resources on exit
-	defer func() {
-		if err := cleanupEmbeddedResources(); err != nil {
-			fmt.Printf("Warning: Failed to cleanup embedded resources: %v\n", err)
-		}
-	}()
+	// Set up embedded resource getter for stickynotes package
+	// This allows stickynotes to access embedded resources without importing main
+	stickynotes.SetResourceGetter(&embeddedResourceGetter{})
 
 	// Parse arguments
 	args := &Args{}
@@ -78,7 +76,6 @@ func main() {
 	go func() {
 		<-sigChan
 		indicator.Save()
-		cleanupEmbeddedResources()
 		gtk.MainQuit()
 	}()
 
@@ -120,7 +117,7 @@ func NewIndicatorStickyNotes(args *Args, dataFile string) *IndicatorStickyNotes 
 	// Show all notes if they were visible previously
 	if allVisible, ok := ind.NoteSet.Properties["all_visible"].(bool); ok && allVisible {
 		ind.NoteSet.ShowAll()
-		
+
 		// After showing all notes, assign window IDs with a delay to ensure windows are realized
 		if stickynotes.IsWindowCallsAvailable() {
 			glib.TimeoutAdd(1000, func() bool {
@@ -159,10 +156,21 @@ func (ind *IndicatorStickyNotes) createIndicator() {
 	// Create AppIndicator
 	ind.Indicator = appindicator.New("indicator-stickynotes", "indicator-stickynotes-mono", appindicator.CategoryApplicationStatus)
 
-	// Set icon theme path
-	iconPath := filepath.Join(stickynotes.GetBasePath(), "Icons")
-	ind.Indicator.SetIconThemePath(iconPath)
-	ind.Indicator.SetIcon("indicator-stickynotes-mono")
+	// AppIndicator requires a file system path for icons, so we need to extract the indicator icon
+	// to a temporary location. Try embedded first, then fallback to file system.
+	iconPath := ind.getIndicatorIconPath()
+	if iconPath != "" {
+		// Extract base name without extension for SetIcon
+		baseName := strings.TrimSuffix(filepath.Base(iconPath), filepath.Ext(iconPath))
+		ind.Indicator.SetIconThemePath(filepath.Dir(iconPath))
+		ind.Indicator.SetIcon(baseName)
+	} else {
+		// Fallback to file system path
+		fsIconPath := filepath.Join(stickynotes.GetBasePath(), "Icons")
+		ind.Indicator.SetIconThemePath(fsIconPath)
+		ind.Indicator.SetIcon("indicator-stickynotes-mono")
+	}
+
 	ind.Indicator.SetStatus(appindicator.StatusActive)
 	ind.Indicator.SetTitle("Sticky Notes")
 
@@ -174,6 +182,65 @@ func (ind *IndicatorStickyNotes) createIndicator() {
 
 	// Set secondary activate target (middle click)
 	ind.connectSecondaryActivate()
+}
+
+// getIndicatorIconPath extracts the indicator icon to a temporary directory and returns the path.
+// Returns empty string if extraction fails (will fallback to file system).
+func (ind *IndicatorStickyNotes) getIndicatorIconPath() string {
+	// Try different icon name variations (AppIndicator expects "indicator-stickynotes-mono")
+	// On Wayland, use blue icon; otherwise use default yellow icon
+	var iconNames []string
+	if stickynotes.IsWayland() {
+		iconNames = []string{
+			"indicator-stickynotes-wayland.svg", // Bright green icon for Wayland
+			"indicator-stickynotes.svg",        // Fallback to default
+			"indicator-stickynotes.png",
+			"indicator-stickynotes-greyscale.svg",
+			"indicator-stickynotes-light.svg",
+		}
+	} else {
+		iconNames = []string{
+			"indicator-stickynotes.svg", // Try SVG first (better quality)
+			"indicator-stickynotes.png",
+			"indicator-stickynotes-greyscale.svg",
+			"indicator-stickynotes-light.svg",
+		}
+	}
+
+	var iconData []byte
+	var err error
+
+	for _, name := range iconNames {
+		iconData, err = GetEmbeddedIcon(name)
+		if err == nil {
+			break
+		}
+	}
+
+	if iconData == nil {
+		return ""
+	}
+
+	// Create temp directory for indicator icon
+	tmpDir, err := os.MkdirTemp("", "go-indicator-stickynotes-icon-*")
+	if err != nil {
+		return ""
+	}
+
+	// AppIndicator expects "indicator-stickynotes-mono" as the icon name
+	// Determine extension from iconData (SVG starts with <?xml or <svg, PNG starts with PNG signature)
+	ext := ".svg"
+	if len(iconData) > 3 && string(iconData[1:4]) == "PNG" {
+		ext = ".png"
+	}
+
+	iconPath := filepath.Join(tmpDir, "indicator-stickynotes-mono"+ext)
+	if err := os.WriteFile(iconPath, iconData, 0644); err != nil {
+		os.RemoveAll(tmpDir)
+		return ""
+	}
+
+	return iconPath
 }
 
 func (ind *IndicatorStickyNotes) connectSecondaryActivate() {
@@ -369,12 +436,24 @@ func (ind *IndicatorStickyNotes) ImportDataFile() {
 }
 
 func (ind *IndicatorStickyNotes) ShowAbout() {
-	// Load about dialog from UI file
-	uiPath := filepath.Join(stickynotes.GetBasePath(), "GlobalDialogs.ui")
-	builder, err := gtk.BuilderNewFromFile(uiPath)
+	// Load about dialog from embedded UI file
+	uiContent, err := GetEmbeddedUI("GlobalDialogs.ui")
+	var builder *gtk.Builder
 	if err != nil {
-		fmt.Printf("Error loading UI file: %v\n", err)
-		return
+		// Fallback to file system
+		uiPath := filepath.Join(stickynotes.GetBasePath(), "GlobalDialogs.ui")
+		builder, err = gtk.BuilderNewFromFile(uiPath)
+		if err != nil {
+			fmt.Printf("Error loading UI file: %v\n", err)
+			return
+		}
+	} else {
+		// Use in-memory API
+		builder, err = gtk.BuilderNewFromString(uiContent)
+		if err != nil {
+			fmt.Printf("Error loading UI from embedded resources: %v\n", err)
+			return
+		}
 	}
 
 	obj, err := builder.GetObject("AboutWindow")
@@ -388,11 +467,26 @@ func (ind *IndicatorStickyNotes) ShowAbout() {
 	// Set icon for About tab
 	if imgObj, err := builder.GetObject("imgAboutIcon"); err == nil && imgObj != nil {
 		img := imgObj.(*gtk.Image)
-		iconPath := filepath.Join(stickynotes.GetBasePath(), "Icons", "indicator-stickynotes.png")
-		if _, err := os.Stat(iconPath); err == nil {
-			pixbuf, err := gdk.PixbufNewFromFile(iconPath)
+		// Try embedded icon first
+		iconData, err := GetEmbeddedIcon("indicator-stickynotes.png")
+		if err == nil {
+			// Load from bytes using PixbufLoader
+			loader, err := gdk.PixbufLoaderNew()
 			if err == nil {
-				img.SetFromPixbuf(pixbuf)
+				if _, err := loader.Write(iconData); err == nil {
+					loader.Close()
+					if pixbuf, err := loader.GetPixbuf(); err == nil {
+						img.SetFromPixbuf(pixbuf)
+					}
+				}
+			}
+		} else {
+			// Fallback to file system
+			iconPath := filepath.Join(stickynotes.GetBasePath(), "Icons", "indicator-stickynotes.png")
+			if _, err := os.Stat(iconPath); err == nil {
+				if pixbuf, err := gdk.PixbufNewFromFile(iconPath); err == nil {
+					img.SetFromPixbuf(pixbuf)
+				}
 			}
 		}
 	}
@@ -422,7 +516,10 @@ Ctrl + W:  Delete note
 Ctrl + L:  Lock note
 Ctrl + N:  New note
 
-Because of limitations in Wayland, window positions cannot be saved.
+Due to Wayland restrictions, window positions cannot be saved. Installing the 
+Window Calls GNOME extension 
+(https://extensions.gnome.org/extension/4724/window-calls/) 
+enables window position saving.
 
 Copyleft 🄯 2025 Runable.App`
 

@@ -30,9 +30,17 @@ func NewSettingsCategory(settingsDialog *SettingsDialog, cat string) *SettingsCa
 		Cat:            cat,
 	}
 
-	path := GetBasePath()
-	uiPath := filepath.Join(path, "SettingsCategory.ui")
-	sc.Builder, _ = gtk.BuilderNewFromFile(uiPath)
+	// Load UI from embedded resources or file system
+	uiContent, err := getEmbeddedUI("SettingsCategory.ui")
+	if err != nil {
+		// Fallback to file system
+		path := GetBasePath()
+		uiPath := filepath.Join(path, "SettingsCategory.ui")
+		sc.Builder, _ = gtk.BuilderNewFromFile(uiPath)
+	} else {
+		// Use in-memory API
+		sc.Builder, _ = gtk.BuilderNewFromString(uiContent)
+	}
 	// Connect signals manually since ConnectSignals needs a map
 	sc.connectSignals()
 
@@ -371,8 +379,16 @@ func NewSettingsDialog(noteset *NoteSet) *SettingsDialog {
 	}
 
 	path := GetBasePath()
-	uiPath := filepath.Join(path, "GlobalDialogs.ui")
-	sd.Builder, _ = gtk.BuilderNewFromFile(uiPath)
+	// Load UI from embedded resources or file system
+	uiContent, err := getEmbeddedUI("GlobalDialogs.ui")
+	if err != nil {
+		// Fallback to file system
+		uiPath := filepath.Join(path, "GlobalDialogs.ui")
+		sd.Builder, _ = gtk.BuilderNewFromFile(uiPath)
+	} else {
+		// Use in-memory API
+		sd.Builder, _ = gtk.BuilderNewFromString(uiContent)
+	}
 	sd.connectSignals()
 
 	sd.WSettings, _ = getObject[*gtk.Dialog](sd.Builder, "wSettings")

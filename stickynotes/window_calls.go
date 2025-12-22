@@ -45,7 +45,7 @@ var (
 func init() {
 	currentPID = os.Getpid()
 	// Only check for extension if we're on Wayland
-	if isWayland() {
+	if IsWayland() {
 		windowCallsAvailable = checkWindowCallsExtension()
 		windowCallsChecked = true
 	} else {
@@ -102,7 +102,7 @@ func checkWindowCallsExtension() bool {
 // IsWindowCallsAvailable returns whether the window-calls extension is available
 // Only returns true if running on Wayland AND extension is installed
 func IsWindowCallsAvailable() bool {
-	return isWayland() && windowCallsAvailable
+	return IsWayland() && windowCallsAvailable
 }
 
 // ListWindows gets all windows from the window-calls extension
@@ -179,7 +179,11 @@ func GetWindowDetails(windowID uint32) (*WindowDetails, error) {
 	if err != nil {
 		// If extension is not available, don't spam errors
 		if dbusErr, ok := err.(dbus.Error); ok {
-			fmt.Printf("[WindowCalls] D-Bus error name: %s\n", dbusErr.Name)
+			// Suppress JavaScript errors from the extension (window might not exist or be invalid)
+			if dbusErr.Name == "org.gnome.gjs.JSError.Error" {
+				// Window ID might be invalid or window doesn't exist - silently ignore
+				return nil, nil
+			}
 			if dbusErr.Name == "org.freedesktop.DBus.Error.ServiceUnknown" ||
 				dbusErr.Name == "org.freedesktop.DBus.Error.UnknownMethod" {
 				fmt.Printf("[WindowCalls] Service/Method not found, marking extension as unavailable\n")

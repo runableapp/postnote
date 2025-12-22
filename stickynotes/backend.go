@@ -306,6 +306,26 @@ func (ns *NoteSet) New() *Note {
 
 // ShowAll shows all notes
 func (ns *NoteSet) ShowAll() {
+	// Print saved positions for all notes
+
+	// for _, note := range ns.Notes {
+	// 	if pos, ok := note.Properties["position"].([]interface{}); ok && len(pos) >= 2 {
+	// 		if x, ok := pos[0].(float64); ok {
+	// 			if y, ok := pos[1].(float64); ok {
+	// 				fmt.Printf("[ShowAll] Note %s: Saved Position=(%d, %d)\n",
+	// 					note.UUID[:8], int(x), int(y))
+	// 			}
+	// 		}
+	// 	} else {
+	// 		if note.GUI != nil {
+	// 			fmt.Printf("[ShowAll] Note %s: No saved position in Properties, LastKnownPos=(%d, %d)\n",
+	// 				note.UUID[:8], note.GUI.LastKnownPos[0], note.GUI.LastKnownPos[1])
+	// 		} else {
+	// 			fmt.Printf("[ShowAll] Note %s: No saved position, GUI not created yet\n", note.UUID[:8])
+	// 		}
+	// 	}
+	// }
+
 	for _, note := range ns.Notes {
 		note.Show()
 	}
@@ -324,7 +344,32 @@ func (ns *NoteSet) AssignWindowIDs() {
 
 // HideAll hides all notes
 func (ns *NoteSet) HideAll() {
+	// Before hiding, get current positions using D-Bus and print them
+	if IsWindowCallsAvailable() {
+		for _, note := range ns.Notes {
+			if note.GUI != nil && note.GUI.WinMain != nil {
+				// Try to get position from D-Bus if window ID is available
+				if note.GUI.WindowID != 0 {
+					details, err := GetWindowDetails(note.GUI.WindowID)
+					if err == nil && details != nil {
+						// Update LastKnownPos from D-Bus
+						note.GUI.LastKnownPos = [2]int{details.X, details.Y}
+						note.GUI.LastKnownSize = [2]int{details.Width, details.Height}
+					}
+				}
+			}
+		}
+	}
+
+	// Update note properties with current positions before saving
+	for _, note := range ns.Notes {
+		if note.GUI != nil {
+			note.GUI.UpdateNote() // This updates position in note.Properties
+		}
+	}
+
 	ns.Save()
+
 	for _, note := range ns.Notes {
 		note.Hide()
 	}
