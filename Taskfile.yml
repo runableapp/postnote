@@ -1,0 +1,82 @@
+version: '3'
+
+vars:
+  APP_NAME: go-indicator-stickynotes
+  BUILD_DIR: build
+  BIN_DIR: bin
+  ROOT_DIR:
+    sh: pwd
+  BINARY:
+    sh: echo "{{.BIN_DIR}}/{{.APP_NAME}}"
+
+tasks:
+  default:
+    desc: Build the application
+    deps: [build]
+
+  build:
+    desc: Build the Go application
+    deps: [setup-pkgconfig]
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - |
+        PKG_CONFIG_PATH="{{.ROOT_DIR}}/{{.BUILD_DIR}}/.pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" \
+        CGO_CFLAGS="-I{{.ROOT_DIR}}/{{.BUILD_DIR}}/include $CGO_CFLAGS" \
+        go build -ldflags '-s -w' -o {{.BINARY}} .
+
+  setup-pkgconfig:
+    desc: Setup pkgconfig and header symlinks for AppIndicator
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}/.pkgconfig {{.BUILD_DIR}}/include/libappindicator
+      - |
+        if [ ! -f {{.BUILD_DIR}}/.pkgconfig/appindicator3-0.1.pc ]; then
+          ln -sf /usr/lib/x86_64-linux-gnu/pkgconfig/ayatana-appindicator3-0.1.pc {{.BUILD_DIR}}/.pkgconfig/appindicator3-0.1.pc
+        fi
+      - |
+        if [ ! -f {{.BUILD_DIR}}/include/libappindicator/app-indicator.h ]; then
+          ln -sf /usr/include/libayatana-appindicator3-0.1/libayatana-appindicator/app-indicator.h {{.BUILD_DIR}}/include/libappindicator/app-indicator.h
+        fi
+    sources:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    generates:
+      - '{{.BINARY}}'
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf {{.BIN_DIR}}
+      - rm -rf {{.BUILD_DIR}}
+      - go clean
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test ./...
+
+  fmt:
+    desc: Format Go code
+    cmds:
+      - go fmt ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Run linter
+    deps: [fmt, vet]
+
+  appimage:
+    desc: Build AppImage
+    deps: [build]
+    cmds:
+      - ./scripts/build-appimage.sh
+
+  install:
+    desc: Install dependencies
+    cmds:
+      - go mod download
+      - go mod tidy

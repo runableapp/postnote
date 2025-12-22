@@ -1,0 +1,42 @@
+# Build artifacts
+bin/
+dist/
+build/
+build-appimage/
+AppDir/
+bak/
+.pkgconfig/
+.task/
+build.log
+tools/
+docs/
+
+# Go build cache
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+test-dbus.sh
+test-window-details.sh
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
