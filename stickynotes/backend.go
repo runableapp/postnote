@@ -41,7 +41,7 @@ func NewNote(content map[string]interface{}, guiClass func(*Note) *StickyNote, n
 			note.Category = cat
 		}
 		if lastMod, ok := content["last_modified"].(string); ok {
-			if t, err := time.Parse("2006-01-02T15:04:05", lastMod); err == nil {
+			if t, err := time.ParseInLocation("2006-01-02T15:04:05", lastMod, time.UTC); err == nil {
 				note.LastModified = t
 			}
 		}
@@ -103,10 +103,16 @@ func (n *Note) Show() {
 	if n.GUI == nil {
 		n.GUI = NewStickyNote(n)
 	} else {
-		// Reload CSS in case category changed or CSS wasn't applied correctly
-		n.GUI.LoadCSS()
-		n.GUI.UpdateFont()
-		n.GUI.Show()
+		// Check if GUI exists but window is destroyed (can happen if note was deleted)
+		if n.GUI.WinMain == nil {
+			// Window was destroyed, recreate GUI
+			n.GUI = NewStickyNote(n)
+		} else {
+			// Reload CSS in case category changed or CSS wasn't applied correctly
+			n.GUI.LoadCSS()
+			n.GUI.UpdateFont()
+			n.GUI.Show()
+		}
 	}
 }
 

@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PostNote - Sticky Notes for Linux</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .header {
+            text-align: center;
+            background: white;
+            border-radius: 20px;
+            padding: 60px 40px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .brand-image {
+            max-width: 240px;
+            height: auto;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 3em;
+            color: #667eea;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .tagline {
+            font-size: 1.3em;
+            color: #666;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .content {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        h2 {
+            color: #667eea;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            font-size: 1.8em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        h2:first-child {
+            margin-top: 0;
+        }
+
+        h3 {
+            color: #764ba2;
+            margin-top: 25px;
+            margin-bottom: 12px;
+            font-size: 1.4em;
+        }
+
+        h4 {
+            color: #764ba2;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+            font-weight: 600;
+        }
+
+        p {
+            margin-bottom: 15px;
+            text-align: justify;
+        }
+
+        ul {
+            margin-left: 20px;
+            margin-bottom: 20px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        .code-block {
+            background: #f5f5f5;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+            white-space: pre;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin: 5px 5px 5px 0;
+        }
+
+        .links {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin: 30px 0;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .footer {
+            text-align: center;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .footer-logo {
+            max-width: 300px;
+            height: auto;
+            margin: 20px 0;
+            transition: transform 0.3s ease;
+        }
+
+        .footer-logo:hover {
+            transform: scale(1.05);
+        }
+
+        .credit {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+
+        .info {
+            background: #d1ecf1;
+            border-left: 4px solid #17a2b8;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2em;
+            }
+
+            .container {
+                padding: 20px 10px;
+            }
+
+            .content, .header, .footer {
+                padding: 30px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>PostNote</h1>
+            <img src="PostNote.png" alt="PostNote" class="brand-image">
+            <p class="tagline">Modern sticky notes for Linux with Wayland support</p>
+            <div class="links">
+                <a href="[GITHUB_REPO_URL]" class="btn" target="_blank">View on GitHub</a>
+                <a href="[RELEASE_DOWNLOAD_URL]" class="btn btn-secondary" target="_blank">Download</a>
+            </div>
+        </div>
+
+        <div class="content">
+            <h2>About</h2>
+            <p>
+                <strong>PostNote</strong> is a modern rewrite of the original <a href="https://launchpad.net/indicator-stickynotes" target="_blank">Indicator Stickynotes</a> Python application, 
+                written in <strong>Go</strong> for better performance and <strong>Wayland</strong> compatibility. This application provides a system tray indicator 
+                for managing multiple sticky notes on your Linux desktop.
+            </p>
+            <p>
+                The design, color scheme, window layout, and icons are reused from the original Indicator Stickynotes by 
+                <strong>Umang Varma</strong>. We extend our gratitude to the original author for creating this useful application.
+            </p>
+
+            <h2>Features</h2>
+            <ul>
+                <li>System tray indicator for sticky notes</li>
+                <li>Multiple notes with category support</li>
+                <li>Customizable colors and fonts per category</li>
+                <li>Lock/unlock notes to prevent accidental editing</li>
+                <li>Export/import note data</li>
+                <li>Keyboard shortcuts (Ctrl+W: Delete, Ctrl+L: Lock, Ctrl+N: New)</li>
+                <li><strong>Wayland window position support</strong> (with GNOME extension)</li>
+                <li>All resources embedded in the binary for portability</li>
+            </ul>
+
+            <h2>Wayland Support</h2>
+            <div class="info">
+                <p><strong>PostNote</strong> supports saving and restoring window positions on Wayland when using the 
+                <a href="https://extensions.gnome.org/extension/4724/window-calls/" target="_blank">window-calls GNOME extension</a>.</p>
+            </div>
+            <p><strong>With the extension installed:</strong></p>
+            <ul>
+                <li>Window positions are automatically tracked and saved</li>
+                <li>Notes restore to their previous positions on restart</li>
+                <li>Position updates happen in real-time as windows are moved</li>
+            </ul>
+            <p><strong>Without the extension (or on X11):</strong></p>
+            <ul>
+                <li>On X11: Window positions work normally using GTK methods</li>
+                <li>On Wayland without extension: Window positions cannot be saved (Wayland security limitation)</li>
+            </ul>
+
+            <h2>Requirements</h2>
+            
+            <h3>GNOME Extension (for Wayland)</h3>
+            <div class="warning">
+                <p><strong>Required for Wayland users:</strong> Install the <a href="https://extensions.gnome.org/extension/4724/window-calls/" target="_blank">window-calls</a> 
+                GNOME extension to enable window position saving and restoration on Wayland.</p>
+            </div>
+
+            <h3>APT Packages (Ubuntu/Debian)</h3>
+            
+            <h4>BUILD</h4>
+            <p>Required packages for building the application:</p>
+            <div class="code-block">
+sudo apt install \
+    libgtk-3-dev \
+    libayatana-appindicator3-dev \
+    pkg-config \
+    libgirepository1.0-dev \
+    gobject-introspection \
+    libgraphene-1.0-dev \
+    wget
+            </div>
+
+            <h4>RUNTIME</h4>
+            <p>Required packages for running the application (usually pre-installed):</p>
+            <div class="code-block">
+sudo apt install \
+    libgtk-3-0 \
+    libayatana-appindicator3-0.1
+            </div>
+
+            <h2>Limitations</h2>
+            <ul>
+                <li><strong>Wayland window positioning:</strong> Requires the <code>window-calls</code> GNOME extension. Without it, window positions cannot be saved on Wayland (this is a Wayland security limitation, not a bug).</li>
+                <li><strong>System dependencies:</strong> The AppImage uses system GTK libraries (not bundled), so GTK3 and Ayatana AppIndicator must be installed on the target system.</li>
+                <li><strong>Desktop environment:</strong> Currently optimized for GNOME desktop environment with AppIndicator support.</li>
+            </ul>
+
+            <h2>Technology</h2>
+            <p>
+                <strong>PostNote</strong> is written in <strong>Go</strong> using:
+            </p>
+            <ul>
+                <li>GTK3 for the graphical user interface</li>
+                <li>Ayatana AppIndicator for system tray integration</li>
+                <li>CGO for C library bindings</li>
+                <li>Go's embed package for bundling resources</li>
+            </ul>
+            <p>
+                This modern implementation provides better performance, smaller binary size, and improved Wayland compatibility 
+                compared to the original Python version.
+            </p>
+        </div>
+
+        <div class="footer">
+            <p class="credit">Developed with AI by</p>
+            <p class="credit"><strong>Vibe Coding @ Runnable.App</strong></p>
+            <a href="https://runable.app" target="_blank">
+                <img src="runnableapp.png" alt="Runnable.App" class="footer-logo">
+            </a>
+            <p class="credit">
+                <small>Original Indicator Stickynotes by Umang Varma</small><br>
+                <small>PostNote is free and open-source software, released for unrestricted use. Feel free to use, modify, and distribute it as you wish.</small>
+            </p>
+        </div>
+    </div>
+</body>
+</html>
+

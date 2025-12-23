@@ -354,6 +354,7 @@ func (ns *NoteSet) UpdateNotePositionsFromWindowCalls() {
 
 			// Match by size (within 10 pixels tolerance)
 			if absInt(details.Width-w) < 10 && absInt(details.Height-h) < 10 {
+				fmt.Printf("[WindowCalls: UpdateNotePositionsFromWindowCalls] Note %s: Matched window ID %d with size (%d, %d)\n", note.UUID[:8], win.ID, w, h)
 				note.GUI.WindowID = win.ID
 				// oldPos := note.GUI.LastKnownPos
 				// oldSize := note.GUI.LastKnownSize

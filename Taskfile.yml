@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  APP_NAME: go-indicator-stickynotes
+  APP_NAME: postnote
   BUILD_DIR: build
   BIN_DIR: bin
   ROOT_DIR:

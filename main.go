@@ -13,7 +13,6 @@ import (
 
 	"github.com/dawidd6/go-appindicator"
 	"github.com/gotk3/gotk3/gdk"
-	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
 )
 
@@ -117,14 +116,8 @@ func NewIndicatorStickyNotes(args *Args, dataFile string) *IndicatorStickyNotes 
 	// Show all notes if they were visible previously
 	if allVisible, ok := ind.NoteSet.Properties["all_visible"].(bool); ok && allVisible {
 		ind.NoteSet.ShowAll()
-
-		// After showing all notes, assign window IDs with a delay to ensure windows are realized
-		if stickynotes.IsWindowCallsAvailable() {
-			glib.TimeoutAdd(1000, func() bool {
-				ind.NoteSet.AssignWindowIDs()
-				return false // Don't repeat
-			})
-		}
+		// Note: Window IDs are automatically assigned by the 300ms timeout in buildNote()
+		// No need for a separate AssignWindowIDs() call here
 	}
 
 	// Note: We don't need periodic position updates because onConfigure() handles
@@ -143,14 +136,14 @@ func NewIndicatorStickyNotes(args *Args, dataFile string) *IndicatorStickyNotes 
 
 // startPositionUpdates starts periodic position updates using the window-calls extension
 // This must be called from the main GTK thread
-func (ind *IndicatorStickyNotes) startPositionUpdates() {
-	// Use glib timeout to update positions every 2 seconds
-	// This ensures we're on the main GTK thread
-	glib.TimeoutAdd(2000, func() bool {
-		ind.NoteSet.UpdateNotePositionsFromWindowCalls()
-		return true // Continue calling
-	})
-}
+// func (ind *IndicatorStickyNotes) startPositionUpdates() {
+// 	// Use glib timeout to update positions every 2 seconds
+// 	// This ensures we're on the main GTK thread
+// 	glib.TimeoutAdd(2000, func() bool {
+// 		ind.NoteSet.UpdateNotePositionsFromWindowCalls()
+// 		return true // Continue calling
+// 	})
+// }
 
 func (ind *IndicatorStickyNotes) createIndicator() {
 	// Create AppIndicator
@@ -193,7 +186,7 @@ func (ind *IndicatorStickyNotes) getIndicatorIconPath() string {
 	if stickynotes.IsWayland() {
 		iconNames = []string{
 			"indicator-stickynotes-wayland.svg", // Bright green icon for Wayland
-			"indicator-stickynotes.svg",        // Fallback to default
+			"indicator-stickynotes.svg",         // Fallback to default
 			"indicator-stickynotes.png",
 			"indicator-stickynotes-greyscale.svg",
 			"indicator-stickynotes-light.svg",
@@ -222,7 +215,7 @@ func (ind *IndicatorStickyNotes) getIndicatorIconPath() string {
 	}
 
 	// Create temp directory for indicator icon
-	tmpDir, err := os.MkdirTemp("", "go-indicator-stickynotes-icon-*")
+	tmpDir, err := os.MkdirTemp("", "postnote-icon-*")
 	if err != nil {
 		return ""
 	}
@@ -508,7 +501,7 @@ func (ind *IndicatorStickyNotes) ShowAbout() {
 	}
 
 	// Set About tab text (centered)
-	aboutText := `Go Indicator Stickynotes
+	aboutText := `PostNote
 0.1a
 
 Keyboard shortcuts:
@@ -516,21 +509,32 @@ Ctrl + W:  Delete note
 Ctrl + L:  Lock note
 Ctrl + N:  New note
 
-Due to Wayland restrictions, window positions cannot be saved. Installing the 
-Window Calls GNOME extension 
-(https://extensions.gnome.org/extension/4724/window-calls/) 
-enables window position saving.
+Due to Wayland restrictions, window 
+positions cannot be saved. 
 
-Copyleft 🄯 2025 Runable.App`
+Installing the Window Calls GNOME extension 
+enables window position saving.
+(https://extensions.gnome.org/extension/4724/window-calls/) 
+
+
+🄯 2025 Vibe Coding @ Runable.App`
 
 	// Set Credit tab text (centered)
-	creditText := `Indicator Stickynotes was originally written in Python by Umang Varma.
-Go Indicator Stickynotes is a modern rewrite in Go for Linux on Wayland, developed with AI.
+	creditText := `PostNote is based on Indicator Stickynotes, 
+originally written in Python by Umang Varma.
+
+It is a modern rewrite in Go, designed for 
+Linux on Wayland, 
+and developed with the assistance of AI.
+
 The design, color scheme, window layout, and icons are reused from Indicator Stickynotes.`
 
 	// Set License tab text (centered)
-	licenseText := `Go indicator-stickynotes is free and open-source software, released for unrestricted use.
-Feel free to use, modify, and distribute it as you wish.`
+	licenseText := `PostNote is free and open-source software, 
+released for unrestricted use.
+
+Feel free to use, modify, and distribute it as you wish.
+👍🏻 Thanks for using!`
 
 	// Get text buffers and set text
 	if tvAbout != nil {

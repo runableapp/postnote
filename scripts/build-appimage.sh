@@ -3,13 +3,12 @@
 
 set -e
 
-APP_NAME="go-indicator-stickynotes"
+APP_NAME="postnote"
 APP_VERSION="0.1a"
 APPDIR="AppDir"
-BUILD_DIR="build-appimage"
 BIN_DIR="bin"
 DIST_DIR="dist"
-BINARY="$BIN_DIR/go-indicator-stickynotes"
+BINARY="$BIN_DIR/postnote"
 
 echo "Building AppImage for $APP_NAME $APP_VERSION (Go version)"
 
@@ -18,8 +17,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 # Clean previous build
-rm -rf "$APPDIR" "$BUILD_DIR"
-mkdir -p "$BUILD_DIR" "$DIST_DIR"
+rm -rf "$APPDIR"
+mkdir -p "$DIST_DIR"
 
 # Build the Go binary first
 # Note: When run via 'task appimage', 'task build' already ran as a dependency.
@@ -79,7 +78,7 @@ else
 [Desktop Entry]
 Name=Go Indicator Stickynotes
 Comment=Sticky Notes Indicator (Go version)
-Exec=go-indicator-stickynotes
+Exec=postnote
 Icon=indicator-stickynotes
 Type=Application
 Categories=Utility;
@@ -110,7 +109,7 @@ if [ -d "${HERE}/usr/lib/pkgconfig" ]; then
 fi
 
 # Run the application
-exec "${HERE}/usr/bin/go-indicator-stickynotes" "$@"
+exec "${HERE}/usr/bin/postnote" "$@"
 EOF
 
 chmod +x "$APPDIR/AppRun"

@@ -182,7 +182,8 @@ type StickyNote struct {
 	LastKnownSize     [2]int
 	CSSProvider       *gtk.CssProvider
 	menuHideConnected bool
-	WindowID          uint32 // Window ID from window-calls extension (D-Bus uint32)
+	WindowID          uint32            // Window ID from window-calls extension (D-Bus uint32)
+	saveTimeoutID     glib.SourceHandle // Timeout ID for debounced save
 }
 
 // NewStickyNote creates a new sticky note GUI
@@ -269,6 +270,7 @@ func (sn *StickyNote) buildNote() {
 	sn.MoveBox2.Connect("button-press-event", sn.onMove)
 	sn.WinMain.Connect("focus-out-event", sn.onFocusOut)
 	sn.WinMain.Connect("configure-event", sn.onConfigure)
+	sn.WinMain.Connect("delete-event", sn.onWindowDelete)
 
 	// Create text buffer
 	sn.BBody, _ = gtk.TextBufferNew(nil)
@@ -299,6 +301,8 @@ func (sn *StickyNote) buildNote() {
 		noteIndex := 0
 		for i, note := range sn.NoteSet.Notes {
 			if note == sn.Note {
+				// Use sn.WindowID directly since we're building sn right now
+				// (note.GUI is nil at this point because it's assigned after NewStickyNote returns)
 				noteIndex = i
 				break
 			}
@@ -394,12 +398,57 @@ func (sn *StickyNote) buildNote() {
 						if err == nil && details != nil {
 							// Match by title (exact match)
 							if details.Title == expectedTitle {
-								sn.WindowID = win.ID
-								break
+								// Double-check: make sure no other note has this ID
+								conflict := false
+								for _, otherNote := range sn.NoteSet.Notes {
+									if otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID && otherNote != sn.Note {
+										conflict = true
+										break
+									}
+								}
+								if !conflict {
+									// Final atomic check: verify no other note has this ID RIGHT NOW
+									// This prevents race conditions where two notes might assign the same ID simultaneously
+									finalConflict := false
+									for _, otherNote := range sn.NoteSet.Notes {
+										if otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID && otherNote != sn.Note {
+											finalConflict = true
+											break
+										}
+									}
+									if !finalConflict {
+										// ONE MORE CHECK: Make absolutely sure no other note has this ID
+										// This is a last-ditch effort to prevent duplicate assignments
+										for _, otherNote := range sn.NoteSet.Notes {
+											if otherNote != sn.Note && otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID {
+												fmt.Printf("[buildNote] Note %s: ABORT! Window ID %d is already assigned to note %s, NOT assigning\n", sn.Note.UUID[:8], win.ID, otherNote.UUID[:8])
+												break // Don't assign, break out of window loop
+											}
+										}
+										// Check one more time before assigning (in case another note assigned it in the meantime)
+										stillAvailable := true
+										for _, otherNote := range sn.NoteSet.Notes {
+											if otherNote != sn.Note && otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID {
+												stillAvailable = false
+												break
+											}
+										}
+										if stillAvailable {
+											sn.WindowID = win.ID
+											break
+										}
+									}
+								}
 							}
+						} else {
+							// fmt.Printf("[# buildNote] Note %s: Could not get details for window ID %d: %v\n", sn.Note.UUID[:8], win.ID, err)
 						}
 					}
+				} else {
+					// fmt.Printf("[# buildNote] Note %s: Error getting windows: %v\n", sn.Note.UUID[:8], err)
 				}
+			} else {
+				// fmt.Printf("[# buildNote] Note %s: Window ID already assigned: %d\n", sn.Note.UUID[:8], sn.WindowID)
 			}
 
 			if sn.WindowID != 0 {
@@ -436,66 +485,74 @@ func (sn *StickyNote) buildNote() {
 	}
 
 	// Check actual position from D-Bus after a delay to allow window to move and get ID assigned
-	if IsWindowCallsAvailable() {
-		// Use TimeoutAdd to check position after a delay
-		// We wait 1500ms to ensure both the move and assignWindowID() have completed
-		glib.TimeoutAdd(1500, func() bool {
+	/*
+		if IsWindowCallsAvailable() {
+			// Use TimeoutAdd to check position after a delay
+			// We wait 1500ms to ensure both the move and assignWindowID() have completed
+			fmt.Printf("[buildNote:1500] Note %s: Checking actual position from D-Bus after a delay to allow window to move and get ID assigned\n", sn.Note.UUID[:8])
+			glib.TimeoutAdd(1500, func() bool {
 
-			// If Window ID is still 0, call assignWindowID() directly to get it
-			if sn.WindowID == 0 {
-				sn.assignWindowID()
+				// If Window ID is still 0, call assignWindowID() directly to get it
 				if sn.WindowID == 0 {
-					return false // Don't repeat
+					fmt.Printf("[buildNote:1500ms] Note %s: Window ID still 0, calling assignWindowID()\n", sn.Note.UUID[:8])
+
+					sn.assignWindowID()
+					if sn.WindowID == 0 {
+						return false // Don't repeat
+					}
 				}
-			}
 
-			// Now we have Window ID, verify the position
-			details, err := GetWindowDetails(sn.WindowID)
-			if err == nil && details != nil {
-				// Position verification (no action needed)
-			}
-			return false // Don't repeat
-		})
-	}
-
-	// After window is shown, try to get window ID from window-calls extension
-	// This allows us to track window position on Wayland
-	if IsWindowCallsAvailable() {
-		// Use glib.IdleAdd with a small delay to ensure window is fully realized and registered
-		glib.TimeoutAdd(500, func() bool {
-			sn.assignWindowID()
-			return false // Don't repeat
-		})
-	} else {
-	}
+				// Now we have Window ID, verify the position
+				details, err := GetWindowDetails(sn.WindowID)
+				if err == nil && details != nil {
+					// Position verification (no action needed)
+				}
+				return false // Don't repeat
+			})
+			fmt.Printf("[buildNote] Note %s: 1500ms timeout completed\n", sn.Note.UUID[:8])
+		}
+	*/
 }
 
 // assignWindowID gets and stores the window ID for this note from window-calls extension
 // Matches windows by unique title: "Sticky Notes - <UUID>"
 func (sn *StickyNote) assignWindowID() {
+	fmt.Printf("[assignWindowID] Note %s: assignWindowID() called, current WindowID=%d\n", sn.Note.UUID[:8], sn.WindowID)
 	if sn.WindowID != 0 {
 		// Already assigned
+		fmt.Printf("[assignWindowID] Note %s: Window ID already assigned: %d\n", sn.Note.UUID[:8], sn.WindowID)
 		return
 	}
 
 	windows, err := GetCurrentProcessWindows()
 	if err != nil {
+		fmt.Printf("[assignWindowID] Note %s: Error getting windows: %v\n", sn.Note.UUID[:8], err)
 		return
 	}
 
 	if len(windows) == 0 {
+		fmt.Printf("[assignWindowID] Note %s: No windows found\n", sn.Note.UUID[:8])
 		return
 	}
 
 	// Match by unique title
 	expectedTitle := fmt.Sprintf("Sticky Notes - %s", sn.Note.UUID[:8])
-
+	fmt.Printf("[assignWindowID] Note %s: Looking for window with title: %s\n", sn.Note.UUID[:8], expectedTitle)
+	fmt.Printf("[assignWindowID] Note %s: Found %d windows\n", sn.Note.UUID[:8], len(windows))
+	// Debug: Print all window IDs and their current assignments
+	fmt.Printf("[assignWindowID] Note %s: Current window ID assignments:\n", sn.Note.UUID[:8])
+	for _, otherNote := range sn.NoteSet.Notes {
+		if otherNote.GUI != nil && otherNote.GUI.WindowID != 0 {
+			fmt.Printf("[assignWindowID]   Note %s -> Window ID %d\n", otherNote.UUID[:8], otherNote.GUI.WindowID)
+		}
+	}
 	for _, win := range windows {
 		// Skip if this window ID is already assigned to another note
 		alreadyAssigned := false
 		for _, otherNote := range sn.NoteSet.Notes {
 			if otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID && otherNote != sn.Note {
 				alreadyAssigned = true
+				fmt.Printf("[assignWindowID] Note %s: Window ID %d already assigned to note %s, skipping\n", sn.Note.UUID[:8], win.ID, otherNote.UUID[:8])
 				break
 			}
 		}
@@ -508,21 +565,94 @@ func (sn *StickyNote) assignWindowID() {
 		if err != nil || details == nil {
 			// Fallback: try to match using title from List() if available
 			if win.Title == expectedTitle {
-				sn.WindowID = win.ID
-				return
+				// Double-check: make sure no other note has this ID
+				conflict := false
+				for _, otherNote := range sn.NoteSet.Notes {
+					if otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID && otherNote != sn.Note {
+						conflict = true
+						fmt.Printf("[assignWindowID] Note %s: CONFLICT! Window ID %d already assigned to note %s, NOT assigning\n", sn.Note.UUID[:8], win.ID, otherNote.UUID[:8])
+						break
+					}
+				}
+				if !conflict {
+					// Final atomic check: verify no other note has this ID RIGHT NOW
+					// This prevents race conditions where two notes might assign the same ID simultaneously
+					finalConflict := false
+					for _, otherNote := range sn.NoteSet.Notes {
+						if otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID && otherNote != sn.Note {
+							finalConflict = true
+							fmt.Printf("[assignWindowID] Note %s: FINAL CONFLICT CHECK! Window ID %d already assigned to note %s, NOT assigning\n", sn.Note.UUID[:8], win.ID, otherNote.UUID[:8])
+							break
+						}
+					}
+					if !finalConflict {
+						// ONE MORE CHECK: Make absolutely sure no other note has this ID
+						// This is a last-ditch effort to prevent duplicate assignments
+						for _, otherNote := range sn.NoteSet.Notes {
+							if otherNote != sn.Note && otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID {
+								fmt.Printf("[assignWindowID] Note %s: ABORT! Window ID %d is already assigned to note %s, NOT assigning\n", sn.Note.UUID[:8], win.ID, otherNote.UUID[:8])
+								return // Don't assign, just return
+							}
+						}
+						sn.WindowID = win.ID
+						fmt.Printf("[assignWindowID] Note %s: Matched window ID %d with title from List(): %s\n", sn.Note.UUID[:8], win.ID, win.Title)
+						return
+					}
+				}
 			}
 			continue
 		}
 
+		fmt.Printf("[assignWindowID] Note %s: Window ID %d has title: %s\n", sn.Note.UUID[:8], win.ID, details.Title)
 		// Match by title (exact match)
 		if details.Title == expectedTitle {
-			sn.WindowID = win.ID
-			return
+			// Double-check: make sure no other note has this ID
+			conflict := false
+			for _, otherNote := range sn.NoteSet.Notes {
+				if otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID && otherNote != sn.Note {
+					conflict = true
+					fmt.Printf("[assignWindowID] Note %s: CONFLICT! Window ID %d already assigned to note %s, NOT assigning\n", sn.Note.UUID[:8], win.ID, otherNote.UUID[:8])
+					break
+				}
+			}
+			if !conflict {
+				// Final atomic check: verify no other note has this ID RIGHT NOW
+				// This prevents race conditions where two notes might assign the same ID simultaneously
+				finalConflict := false
+				for _, otherNote := range sn.NoteSet.Notes {
+					if otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID && otherNote != sn.Note {
+						finalConflict = true
+						fmt.Printf("[assignWindowID] Note %s: FINAL CONFLICT CHECK! Window ID %d already assigned to note %s, NOT assigning\n", sn.Note.UUID[:8], win.ID, otherNote.UUID[:8])
+						break
+					}
+				}
+				if !finalConflict {
+					// ONE MORE CHECK: Make absolutely sure no other note has this ID
+					// This is a last-ditch effort to prevent duplicate assignments
+					for _, otherNote := range sn.NoteSet.Notes {
+						if otherNote != sn.Note && otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID {
+							fmt.Printf("[assignWindowID] Note %s: ABORT! Window ID %d is already assigned to note %s, NOT assigning\n", sn.Note.UUID[:8], win.ID, otherNote.UUID[:8])
+							return // Don't assign, just return
+						}
+					}
+					sn.WindowID = win.ID
+					fmt.Printf("[assignWindowID] Note %s: Matched window ID %d with title: %s\n", sn.Note.UUID[:8], win.ID, details.Title)
+					return
+				}
+			}
 		}
 	}
+	fmt.Printf("[assignWindowID] Note %s: No matching window found\n", sn.Note.UUID[:8])
 }
 
 func (sn *StickyNote) Show() {
+	// Check if window was destroyed (can happen if note was deleted)
+	if sn.WinMain == nil {
+		// Window was destroyed, need to rebuild
+		sn.buildNote()
+		return
+	}
+
 	if sn.WinMain != nil {
 		// IMPORTANT: Save LastKnownPos BEFORE calling UpdateNote(), because UpdateNote()
 		// might reset it if the window is hidden (GetPosition returns 0,0)
@@ -538,34 +668,57 @@ func (sn *StickyNote) Show() {
 		// Ensure unique window title is set (in case it was lost)
 		sn.WinMain.SetTitle(fmt.Sprintf("Sticky Notes - %s", sn.Note.UUID[:8]))
 
+		// Check if window is already visible - if so, preserve its current position
+		// This prevents existing notes from being repositioned when a new note is created
+		isVisible := sn.WinMain.GetVisible()
+
 		// Restore saved position and size (same logic as buildNote)
 		restorePos := [2]int{10, 10}
+		shouldMove := true // Only move window if it's not already visible and positioned
 
 		if pos, ok := sn.Note.Properties["position"].([]interface{}); ok && len(pos) >= 2 {
 			if x, ok := pos[0].(float64); ok {
 				if y, ok := pos[1].(float64); ok {
 					restorePos = [2]int{int(x), int(y)}
 					sn.LastKnownPos = [2]int{int(x), int(y)}
+					// If window is already visible at this position, don't move it
+					if isVisible && savedLastKnownPos[0] == int(x) && savedLastKnownPos[1] == int(y) {
+						shouldMove = false
+					}
 				}
 			}
 		} else {
-			// If no saved position in Properties, use savedLastKnownPos (from before UpdateNote)
-			// Check if savedLastKnownPos is meaningful (not default values)
-			if (savedLastKnownPos[0] != 0 && savedLastKnownPos[1] != 0) &&
-				(savedLastKnownPos[0] != 10 || savedLastKnownPos[1] != 10) {
-				restorePos = savedLastKnownPos
-				sn.LastKnownPos = savedLastKnownPos // Restore it
-			} else {
-				// Calculate offset based on note index to prevent cascading
-				noteIndex := 0
-				for i, note := range sn.NoteSet.Notes {
-					if note == sn.Note {
-						noteIndex = i
-						break
-					}
+			// If no saved position in Properties, check if window is already visible
+			if isVisible {
+				// Window is already visible - preserve its current position
+				// Use savedLastKnownPos if it's meaningful, otherwise keep current position
+				if savedLastKnownPos[0] != 0 && savedLastKnownPos[1] != 0 {
+					restorePos = savedLastKnownPos
+					sn.LastKnownPos = savedLastKnownPos
+				} else {
+					// Keep current LastKnownPos (don't change it)
+					restorePos = sn.LastKnownPos
 				}
-				restorePos = [2]int{10 + noteIndex*30, 10 + noteIndex*30}
-				sn.LastKnownPos = restorePos
+				shouldMove = false
+			} else {
+				// Window is not visible - this is a new note or note being shown for first time
+				// Use savedLastKnownPos if meaningful, otherwise calculate based on index
+				if (savedLastKnownPos[0] != 0 && savedLastKnownPos[1] != 0) &&
+					(savedLastKnownPos[0] != 10 || savedLastKnownPos[1] != 10) {
+					restorePos = savedLastKnownPos
+					sn.LastKnownPos = savedLastKnownPos
+				} else {
+					// Calculate offset based on note index for new notes
+					noteIndex := 0
+					for i, note := range sn.NoteSet.Notes {
+						if note == sn.Note {
+							noteIndex = i
+							break
+						}
+					}
+					restorePos = [2]int{10 + noteIndex*30, 10 + noteIndex*30}
+					sn.LastKnownPos = restorePos
+				}
 			}
 		}
 
@@ -576,6 +729,14 @@ func (sn *StickyNote) Show() {
 					sn.LastKnownSize = [2]int{int(w), int(h)}
 				}
 			}
+		}
+
+		// If window is already visible and positioned, skip repositioning
+		// This prevents existing notes from moving when new notes are created
+		if isVisible && !shouldMove {
+			// Window is already visible and positioned correctly, just ensure it's shown
+			sn.WinMain.ShowAll()
+			return
 		}
 
 		// Strategy: Make window invisible, show it, move it, then make it visible
@@ -589,11 +750,25 @@ func (sn *StickyNote) Show() {
 		if IsWindowCallsAvailable() {
 			// Wait 300ms for windows to be fully realized and get their sizes (same as buildNote)
 			glib.TimeoutAdd(300, func() bool {
-				// Try to get window ID if not assigned yet (match by title)
-				if sn.WindowID == 0 {
+				// Only try to assign window ID if it's not already assigned AND note has saved position
+				// For new notes (no saved position), buildNote() already handles window ID assignment,
+				// so we skip it here to avoid duplicate assignments that can cause wrong window matching
+				hasSavedPosition := false
+				if pos, ok := sn.Note.Properties["position"].([]interface{}); ok && len(pos) >= 2 {
+					hasSavedPosition = true
+				}
+				// Only assign window ID for existing notes (have saved position) that lost their window ID
+				// New notes are handled by buildNote()'s timeout
+				if sn.WindowID == 0 && hasSavedPosition {
 					expectedTitle := fmt.Sprintf("Sticky Notes - %s", sn.Note.UUID[:8])
 					windows, err := GetCurrentProcessWindows()
 					if err == nil && windows != nil {
+						// Debug: Print all window IDs and their current assignments
+						// for _, otherNote := range sn.NoteSet.Notes {
+						// 	if otherNote.GUI != nil && otherNote.GUI.WindowID != 0 {
+						// 		fmt.Printf("[Show]   Note %s -> Window ID %d\n", otherNote.UUID[:8], otherNote.GUI.WindowID)
+						// 	}
+						// }
 						for _, win := range windows {
 							// Skip if already assigned to another note
 							alreadyAssigned := false
@@ -612,12 +787,39 @@ func (sn *StickyNote) Show() {
 							if err == nil && details != nil {
 								// Match by title (exact match)
 								if details.Title == expectedTitle {
-									sn.WindowID = win.ID
-									break
+									// Double-check: make sure no other note has this ID
+									conflict := false
+									for _, otherNote := range sn.NoteSet.Notes {
+										if otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID && otherNote != sn.Note {
+											conflict = true
+											break
+										}
+									}
+									if !conflict {
+										// Final atomic check: verify no other note has this ID RIGHT NOW
+										// This prevents race conditions where two notes might assign the same ID simultaneously
+										finalConflict := false
+										for _, otherNote := range sn.NoteSet.Notes {
+											if otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID && otherNote != sn.Note {
+												finalConflict = true
+												break
+											}
+										}
+										if !finalConflict {
+											sn.WindowID = win.ID
+											break
+										}
+									}
 								}
+							} else {
+								// fmt.Printf("[Show] Note %s: Could not get details for window ID %d: %v\n", sn.Note.UUID[:8], win.ID, err)
 							}
 						}
+					} else {
+						// fmt.Printf("[Show] Note %s: Error getting windows: %v\n", sn.Note.UUID[:8], err)
 					}
+				} else {
+					// fmt.Printf("[Show] Note %s: Window ID already assigned: %d\n", sn.Note.UUID[:8], sn.WindowID)
 				}
 
 				// Move window to saved position (same logic as buildNote)
@@ -625,22 +827,18 @@ func (sn *StickyNote) Show() {
 					err := MoveWindow(sn.WindowID, restorePos[0], restorePos[1])
 					if err == nil {
 						sn.WinMain.SetOpacity(1.0) // Make window visible after moving
-						// Update note after positioning
-						sn.UpdateNote()
 					} else {
 						// Fallback to GTK Move() (might not work on Wayland but worth trying)
 						sn.WinMain.Move(restorePos[0], restorePos[1])
 						sn.WinMain.SetOpacity(1.0) // Make window visible after moving
-						// Update note after positioning
-						sn.UpdateNote()
 					}
 				} else {
 					// Fallback to GTK Move() (might not work on Wayland but worth trying)
 					sn.WinMain.Move(restorePos[0], restorePos[1])
 					sn.WinMain.SetOpacity(1.0) // Make window visible after moving
-					// Update note after positioning
-					sn.UpdateNote()
 				}
+				// Update note after positioning (called regardless of which path was taken)
+				sn.UpdateNote()
 
 				return false // Don't repeat
 			})
@@ -660,6 +858,11 @@ func (sn *StickyNote) Show() {
 }
 
 func (sn *StickyNote) Hide() {
+	// Cancel any pending save timeout
+	if sn.saveTimeoutID != 0 {
+		glib.SourceRemove(sn.saveTimeoutID)
+		sn.saveTimeoutID = 0
+	}
 	if sn.WinMain != nil {
 		// Reset WindowID because it will be invalid after hiding
 		// The window will get a new ID when shown again, and we'll match it by title
@@ -726,15 +929,20 @@ func (sn *StickyNote) onAdd() {
 	newNote := sn.NoteSet.New()
 	newNote.Category = sn.Note.Category
 	if newNote.GUI != nil {
+		// Reload CSS and font after setting category to ensure correct colors
+		newNote.GUI.LoadCSS()
+		newNote.GUI.UpdateFont()
 		newNote.GUI.PopulateMenu()
-		x, y := sn.WinMain.GetPosition()
-		_, h := sn.WinMain.GetSize()
-		newY := y + h + 10
-		newNote.GUI.WinMain.Move(x, newY)
+		// Note: Don't move the new note - let Show() handle positioning
 	}
 }
 
 func (sn *StickyNote) onDelete() {
+	// Cancel any pending save timeout
+	if sn.saveTimeoutID != 0 {
+		glib.SourceRemove(sn.saveTimeoutID)
+		sn.saveTimeoutID = 0
+	}
 	dialog := gtk.MessageDialogNew(sn.WinMain, gtk.DIALOG_MODAL, gtk.MESSAGE_QUESTION, gtk.BUTTONS_NONE, "Are you sure you want to delete this note?")
 	dialog.AddButton("Cancel", gtk.RESPONSE_REJECT)
 	dialog.AddButton("Delete", gtk.RESPONSE_ACCEPT)
@@ -746,7 +954,22 @@ func (sn *StickyNote) onDelete() {
 		if sn.WinMain != nil {
 			sn.WinMain.Destroy()
 		}
+		// Clear GUI reference to prevent trying to use destroyed window
+		sn.Note.GUI = nil
 	}
+}
+
+func (sn *StickyNote) onWindowDelete(win *gtk.Window, event *gdk.Event) bool {
+	// When window is closed via window manager (like X button in Activities Overview),
+	// we should delete the note
+	sn.Note.Delete()
+	if sn.WinMain != nil {
+		sn.WinMain.Destroy()
+	}
+	// Clear GUI reference to prevent trying to use destroyed window
+	sn.Note.GUI = nil
+	// Return false to allow default handling (window destruction)
+	return false
 }
 
 func (sn *StickyNote) onLockClicked() {
@@ -754,30 +977,52 @@ func (sn *StickyNote) onLockClicked() {
 }
 
 // loadIconsFromEmbedded loads icons from embedded resources and sets them on the image widgets
+// Tries SVG first (better quality), then falls back to PNG
 func (sn *StickyNote) loadIconsFromEmbedded(imgDropdown *gtk.Image) {
 	iconMap := map[*gtk.Image]string{
-		sn.ImgAdd:     "add.png",
-		sn.ImgClose:   "close.png",
-		sn.ImgLock:    "lock.png",
-		sn.ImgUnlock:  "unlock.png",
-		sn.ImgResizeR: "resizer.png",
+		sn.ImgAdd:     "add",
+		sn.ImgClose:   "close",
+		sn.ImgLock:    "lock",
+		sn.ImgUnlock:  "unlock",
+		sn.ImgResizeR: "resizer",
 	}
 
 	// Add dropdown/menu icon if available
 	if imgDropdown != nil {
-		iconMap[imgDropdown] = "menu.png"
+		iconMap[imgDropdown] = "menu"
 	}
 
-	for img, iconName := range iconMap {
+	for img, iconBase := range iconMap {
 		if img == nil {
 			continue
 		}
-		iconData, err := getEmbeddedIcon(iconName)
+
+		var iconData []byte
+		var err error
+		var iconName string
+
+		// Try SVG first (better quality), then fall back to PNG
+		iconName = iconBase + ".svg"
+		iconData, err = getEmbeddedIcon(iconName)
 		if err != nil {
-			// Fallback: try to load from file system
-			iconPath := filepath.Join(sn.Path, "Icons", iconName)
-			if _, err := os.Stat(iconPath); err == nil {
-				if pixbuf, err := gdk.PixbufNewFromFile(iconPath); err == nil {
+			// Fallback to PNG
+			iconName = iconBase + ".png"
+			iconData, err = getEmbeddedIcon(iconName)
+		}
+
+		if err != nil {
+			// Fallback: try to load from file system (try SVG first, then PNG)
+			svgPath := filepath.Join(sn.Path, "Icons", iconBase+".svg")
+			pngPath := filepath.Join(sn.Path, "Icons", iconBase+".png")
+
+			if _, err := os.Stat(svgPath); err == nil {
+				if pixbuf, err := gdk.PixbufNewFromFile(svgPath); err == nil {
+					img.SetFromPixbuf(pixbuf)
+					continue
+				}
+			}
+			if _, err := os.Stat(pngPath); err == nil {
+				if pixbuf, err := gdk.PixbufNewFromFile(pngPath); err == nil {
 					img.SetFromPixbuf(pixbuf)
 				}
 			}
@@ -785,6 +1030,7 @@ func (sn *StickyNote) loadIconsFromEmbedded(imgDropdown *gtk.Image) {
 		}
 
 		// Load from embedded bytes using PixbufLoader
+		// Don't scale - let GTK handle scaling naturally based on display DPI
 		loader, err := gdk.PixbufLoaderNew()
 		if err != nil {
 			continue
@@ -852,28 +1098,53 @@ func (sn *StickyNote) onConfigure() {
 		return
 	}
 
+	// Cancel any pending save timeout
+	if sn.saveTimeoutID != 0 {
+		glib.SourceRemove(sn.saveTimeoutID)
+		sn.saveTimeoutID = 0
+	}
+
 	// Try to get position from window-calls extension first (works on Wayland)
 	if IsWindowCallsAvailable() {
 
-		// If we don't have a window ID yet, try to find it
+		// If we don't have a window ID yet, try to find it by matching title
 		if sn.WindowID == 0 {
+			expectedTitle := fmt.Sprintf("Sticky Notes - %s", sn.Note.UUID[:8])
 			windows, err := GetCurrentProcessWindows()
 			if err == nil && windows != nil {
-				// Try to match by size
-				w, h := sn.WinMain.GetSize()
 				for _, win := range windows {
-					details, err := GetWindowDetails(win.ID)
-					if err == nil && details != nil {
-						// Match by size (within 10 pixels)
-						if absInt(details.Width-w) < 10 && absInt(details.Height-h) < 10 {
-							sn.WindowID = win.ID
+					// Skip if already assigned to another note
+					alreadyAssigned := false
+					for _, otherNote := range sn.NoteSet.Notes {
+						if otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID && otherNote != sn.Note {
+							alreadyAssigned = true
 							break
 						}
 					}
+					if alreadyAssigned {
+						continue
+					}
+
+					details, err := GetWindowDetails(win.ID)
+					if err == nil && details != nil {
+						// Match by title (exact match)
+						if details.Title == expectedTitle {
+							// Double-check: make sure no other note has this ID
+							conflict := false
+							for _, otherNote := range sn.NoteSet.Notes {
+								if otherNote.GUI != nil && otherNote.GUI.WindowID == win.ID && otherNote != sn.Note {
+									conflict = true
+									break
+								}
+							}
+							if !conflict {
+								sn.WindowID = win.ID
+								break
+							}
+						}
+					}
 				}
-			} else {
 			}
-		} else {
 		}
 
 		// If we have a window ID, get position from window-calls
@@ -886,7 +1157,12 @@ func (sn *StickyNote) onConfigure() {
 				sn.LastKnownPos = newPos
 				sn.LastKnownSize = newSize
 
-				sn.NoteSet.Save()
+				// Schedule debounced save (500ms delay)
+				sn.saveTimeoutID = glib.TimeoutAdd(500, func() bool {
+					sn.NoteSet.Save()
+					sn.saveTimeoutID = 0
+					return false // Don't repeat
+				})
 				return
 			}
 		}
@@ -903,7 +1179,12 @@ func (sn *StickyNote) onConfigure() {
 		sn.LastKnownSize = [2]int{w, h}
 	}
 
-	sn.NoteSet.Save()
+	// Schedule debounced save (500ms delay)
+	sn.saveTimeoutID = glib.TimeoutAdd(500, func() bool {
+		sn.NoteSet.Save()
+		sn.saveTimeoutID = 0
+		return false // Don't repeat
+	})
 }
 
 func (sn *StickyNote) PopulateMenu() {
