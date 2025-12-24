@@ -240,7 +240,7 @@ You should have received a copy of the GNU General Public License along with Pos
 
 ## Credits
 
-This application is based on indicator-stickynotes.  PostNote borrows ideas, workflow, icons, and UI elements  from the original project. indicator-stickynotes is © 2012–2018 Umang Varma umang.me@gmail.com https://launchpad.net/indicator-stickynotes/
+This application is based on indicator-stickynotes.  PostNote borrows ideas, workflow, icons, and UI elements from the original project. indicator-stickynotes is © 2012–2018 Umang Varma https://launchpad.net/indicator-stickynotes/
 
 - **Original Python version:** Umang Varma
 - **Go rewrite:** Developed with AI for Linux on Wayland
