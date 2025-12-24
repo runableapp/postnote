@@ -35,7 +35,7 @@ func GetEmbeddedCSS(filename string) (string, error) {
 }
 
 // GetEmbeddedIcon returns the icon file content as bytes from embedded resources.
-// iconPath should be relative to Icons directory (e.g., "indicator-stickynotes.png" or "add.png").
+// iconPath should be relative to Icons directory (e.g., "postnote.png" or "add.png").
 // Returns nil and error if file not found.
 func GetEmbeddedIcon(iconPath string) ([]byte, error) {
 	embedPath := "assets/Icons/" + iconPath

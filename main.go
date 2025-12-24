@@ -461,7 +461,7 @@ func (ind *IndicatorStickyNotes) ShowAbout() {
 	if imgObj, err := builder.GetObject("imgAboutIcon"); err == nil && imgObj != nil {
 		img := imgObj.(*gtk.Image)
 		// Try embedded icon first
-		iconData, err := GetEmbeddedIcon("indicator-stickynotes.png")
+		iconData, err := GetEmbeddedIcon("postnote.png")
 		if err == nil {
 			// Load from bytes using PixbufLoader
 			loader, err := gdk.PixbufLoaderNew()
@@ -475,7 +475,7 @@ func (ind *IndicatorStickyNotes) ShowAbout() {
 			}
 		} else {
 			// Fallback to file system
-			iconPath := filepath.Join(stickynotes.GetBasePath(), "Icons", "indicator-stickynotes.png")
+			iconPath := filepath.Join(stickynotes.GetBasePath(), "Icons", "postnote.png")
 			if _, err := os.Stat(iconPath); err == nil {
 				if pixbuf, err := gdk.PixbufNewFromFile(iconPath); err == nil {
 					img.SetFromPixbuf(pixbuf)

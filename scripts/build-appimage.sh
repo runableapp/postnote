@@ -52,15 +52,15 @@ cp "assets/style_global.css" "$APPDIR/usr/share/indicator-stickynotes/" 2>/dev/n
 echo "Copying icons..."
 if [ -d "assets/Icons" ]; then
     # Try to copy hicolor theme icons if they exist
-    if [ -f "assets/Icons/hicolor/48x48/apps/indicator-stickynotes.png" ]; then
-        cp "assets/Icons/hicolor/48x48/apps/indicator-stickynotes.png" "$APPDIR/usr/share/icons/hicolor/48x48/apps/" 2>/dev/null || true
+    if [ -f "assets/Icons/hicolor/48x48/apps/postnote.png" ]; then
+        cp "assets/Icons/hicolor/48x48/apps/postnote.png" "$APPDIR/usr/share/icons/hicolor/48x48/apps/" 2>/dev/null || true
     fi
-    if [ -f "assets/Icons/hicolor/scalable/apps/indicator-stickynotes.svg" ]; then
-        cp "assets/Icons/hicolor/scalable/apps/indicator-stickynotes.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/" 2>/dev/null || true
+    if [ -f "assets/Icons/hicolor/scalable/apps/postnote.svg" ]; then
+        cp "assets/Icons/hicolor/scalable/apps/postnote.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/" 2>/dev/null || true
     fi
     # Copy main icon to AppDir root
-    if [ -f "assets/Icons/indicator-stickynotes.png" ]; then
-        cp "assets/Icons/indicator-stickynotes.png" "$APPDIR/" 2>/dev/null || true
+    if [ -f "assets/Icons/postnote.png" ]; then
+        cp "assets/Icons/postnote.png" "$APPDIR/" 2>/dev/null || true
     fi
     # Copy all icon files that UI files reference
     mkdir -p "$APPDIR/usr/share/indicator-stickynotes/Icons"
@@ -69,21 +69,21 @@ if [ -d "assets/Icons" ]; then
 fi
 
 # Copy desktop file
-if [ -f "../indicator-stickynotes.desktop" ]; then
-    cp "../indicator-stickynotes.desktop" "$APPDIR/usr/share/applications/"
-    cp "../indicator-stickynotes.desktop" "$APPDIR/"
+if [ -f "../postnote.desktop" ]; then
+    cp "../postnote.desktop" "$APPDIR/usr/share/applications/"
+    cp "../postnote.desktop" "$APPDIR/"
 else
     # Create a basic desktop file
-    cat > "$APPDIR/indicator-stickynotes.desktop" << 'EOF'
+    cat > "$APPDIR/postnote.desktop" << 'EOF'
 [Desktop Entry]
-Name=Go Indicator Stickynotes
-Comment=Sticky Notes Indicator (Go version)
+Name=PostNote
+Comment=Sticky note for Wayland
 Exec=postnote
-Icon=indicator-stickynotes
+Icon=postnote
 Type=Application
 Categories=Utility;
 EOF
-    cp "$APPDIR/indicator-stickynotes.desktop" "$APPDIR/usr/share/applications/"
+    cp "$APPDIR/postnote.desktop" "$APPDIR/usr/share/applications/"
 fi
 
 # Create AppRun script
