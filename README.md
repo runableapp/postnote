@@ -1,6 +1,6 @@
-# Go Indicator Stickynotes
+# PostNote
 
-Go Indicator Stickynotes is a modern rewrite of the original [Indicator Stickynotes](https://launchpad.net/indicator-stickynotes) Python application, written in Go for better performance and Wayland compatibility.
+PostNote is a modern rewrite of the original [Indicator Stickynotes](https://launchpad.net/indicator-stickynotes) Python application, written in Go for better performance and Wayland compatibility.
 
 ## About
 
@@ -31,11 +31,25 @@ The application supports saving and restoring window positions on Wayland when u
 - On X11: Window positions work normally using GTK methods
 - On Wayland without extension: Window positions cannot be saved (Wayland security limitation)
 
-See [docs/WAYLAND_WINDOW_CALLS.md](docs/WAYLAND_WINDOW_CALLS.md) for detailed information about the window-calls integration.
+See [WAYLAND_WINDOW_CALLS.md](WAYLAND_WINDOW_CALLS.md) for detailed information about the window-calls integration.
 
 ## Requirements
 
 ### APT Packages (Ubuntu/Debian)
+
+**Runtime dependencies** (usually pre-installed):
+- `libgtk-3-0` - GTK3 runtime library
+- `libayatana-appindicator3-0.1` - AppIndicator runtime library
+
+**For building:**
+- `libgtk-3-dev` - GTK3 development files
+- `libayatana-appindicator3-dev` - AppIndicator development files (for system tray)
+- `pkg-config` - Package configuration tool
+- `libgirepository1.0-dev` - GObject Introspection repository
+- `gobject-introspection` - GObject Introspection tools
+- `libgraphene-1.0-dev` - Graphene graphics library
+- `wget` - For downloading appimagetool
+
 
 To build and run this application, you need the following packages:
 
@@ -50,18 +64,8 @@ sudo apt-get install \
     wget
 ```
 
-**For building:**
-- `libgtk-3-dev` - GTK3 development files
-- `libayatana-appindicator3-dev` - AppIndicator development files (for system tray)
-- `pkg-config` - Package configuration tool
-- `libgirepository1.0-dev` - GObject Introspection repository
-- `gobject-introspection` - GObject Introspection tools
-- `libgraphene-1.0-dev` - Graphene graphics library
-- `wget` - For downloading appimagetool
 
-**Runtime dependencies** (usually pre-installed):
-- `libgtk-3-0` - GTK3 runtime library
-- `libayatana-appindicator3-0.1` - AppIndicator runtime library
+
 
 ## Building
 
@@ -76,13 +80,13 @@ sudo apt-get install \
    ```bash
    task build
    ```
-   Creates: `go-indicator-stickynotes`
+   Creates: `bin/postnote`
 
 3. **Build the AppImage:**
    ```bash
    task appimage
    ```
-   Creates: `dist/go-indicator-stickynotes-0.1a-x86_64.AppImage`
+   Creates: `dist/postnote-0.1a-x86_64.AppImage`
 
 ### Prerequisites
 
@@ -115,25 +119,25 @@ This script will:
 
 ### Build the Binary
 
-Build the `go-indicator-stickynotes` binary:
+Build the `postnote` binary:
 
 ```bash
 task build
 ```
 
-This will create the `go-indicator-stickynotes` binary (approximately 5.3MB) in the current directory.
+This will create the `postnote` binary (approximately 5.3MB) in the `bin/` directory.
 
 **Alternative:** If you prefer to build without `task`:
 
 ```bash
 PKG_CONFIG_PATH="$PWD/build/.pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig" \
 CGO_CFLAGS="-I$PWD/build/include" \
-mkdir -p bin && go build -ldflags '-s -w' -o bin/go-indicator-stickynotes .
+mkdir -p bin && go build -ldflags '-s -w' -o bin/postnote .
 ```
 
 ### Build the AppImage
 
-To create a portable AppImage package (`dist/go-indicator-stickynotes-0.1a-x86_64.AppImage`):
+To create a portable AppImage package (`dist/postnote-0.1a-x86_64.AppImage`):
 
 ```bash
 task appimage
@@ -144,7 +148,7 @@ This will:
 2. Create the AppDir structure
 3. Copy all necessary files (UI files, CSS, icons)
 4. Download `appimagetool` if needed
-5. Create the final AppImage: `dist/go-indicator-stickynotes-0.1a-x86_64.AppImage` (approximately 1.8MB)
+5. Create the final AppImage: `dist/postnote-0.1a-x86_64.AppImage` (approximately 1.8MB)
 
 **Alternative:** Run the build script directly:
 
@@ -154,7 +158,7 @@ This will:
 
 ### Build Options
 
-- `task build` - Build the `go-indicator-stickynotes` binary
+- `task build` - Build the `postnote` binary
 - `task appimage` - Build both the binary and the AppImage package
 - `task clean` - Clean build artifacts
 - `task fmt` - Format Go code
@@ -174,8 +178,8 @@ This keeps the AppImage size smaller but requires these libraries to be installe
 ### Running the AppImage
 
 ```bash
-chmod +x dist/go-indicator-stickynotes-0.1a-x86_64.AppImage
-./dist/go-indicator-stickynotes-0.1a-x86_64.AppImage
+chmod +x dist/postnote-0.1a-x86_64.AppImage
+./dist/postnote-0.1a-x86_64.AppImage
 ```
 
 ## Running from Source
@@ -183,7 +187,7 @@ chmod +x dist/go-indicator-stickynotes-0.1a-x86_64.AppImage
 After building the binary:
 
 ```bash
-./bin/go-indicator-stickynotes
+./bin/postnote
 ```
 
 The application will:
@@ -194,7 +198,7 @@ The application will:
 ## Project Structure
 
 ```
-go-indicator-stickynotes/
+postnote/
 ├── main.go                # Main application entry point
 ├── resources.go           # Embedded resources (UI, CSS, icons)
 ├── stickynotes/           # Application package
@@ -208,37 +212,35 @@ go-indicator-stickynotes/
 │   ├── GlobalDialogs.ui   # About and Settings dialogs
 │   ├── SettingsCategory.ui # Category settings UI
 │   ├── style.css          # Note styling CSS
-│   ├── style_global.css  # Global CSS
+│   ├── style_global.css   # Global CSS
 │   └── Icons/             # Application icons
 ├── scripts/               # Build and utility scripts
 │   ├── build-appimage.sh  # AppImage build script
-│   ├── setup-build.sh     # Build environment setup
-│   ├── test-dbus.sh       # D-Bus testing script
-│   └── test-window-details.sh # Window details testing
+│   └── setup-build.sh     # Build environment setup
 ├── docs/                  # Documentation
-│   ├── BUILD_EXPLANATION.md
-│   ├── BUILD_CACHE_EXPLANATION.md
-│   ├── DEBUGGING.md
-│   ├── WAYLAND_WINDOW_CALLS.md
-│   └── EMBEDDED_RESOURCES.md
-├── bin/                   # Compiled binaries (generated)
-│   └── go-indicator-stickynotes
-├── dist/                  # Distribution artifacts (generated)
-│   └── go-indicator-stickynotes-*.AppImage
-├── build/                 # Build artifacts (generated)
-├── tools/                 # Build tools (generated)
-│   └── appimagetool-x86_64.AppImage
+│   ├── index.html         # Project documentation page
+│   ├── PostNote.png       # Project logo
+│   └── runnableapp.png    # Runnable.App logo
 ├── Taskfile.yml           # Build automation
-├── go.mod                  # Go module definition
-├── go.sum                  # Go module checksums
-└── README.md               # This file
+├── go.mod                 # Go module definition
+├── go.sum                 # Go module checksums
+└── README.md              # This file
 ```
 
 ## License
 
-Go indicator-stickynotes is free and open-source software, released for unrestricted use. Feel free to use, modify, and distribute it as you wish.
+PostNote is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ 
+PostNote is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+ 
+You should have received a copy of the GNU General Public License along with PostNote.  If not, see http://www.gnu.org/licenses/
+
+© 2025 Runable.App
+
 
 ## Credits
+
+This application is based on indicator-stickynotes.  PostNote borrows ideas, workflow, icons, and UI elements  from the original project. indicator-stickynotes is © 2012–2018 Umang Varma umang.me@gmail.com https://launchpad.net/indicator-stickynotes/
 
 - **Original Python version:** Umang Varma
 - **Go rewrite:** Developed with AI for Linux on Wayland
@@ -255,19 +257,6 @@ Go indicator-stickynotes is free and open-source software, released for unrestri
 - Window positions on Wayland require the [window-calls GNOME extension](https://github.com/ickyicky/window-calls) to be installed and enabled
 - "Always on top" feature is disabled on Wayland (not supported)
 - Requires GTK3 and AppIndicator libraries to be installed on the system
-
-## Debug Output
-
-The application includes debug logging for troubleshooting window position tracking. Debug messages are prefixed with tags like:
-- `[WindowCalls]` - D-Bus calls to window-calls extension
-- `[onConfigure]` - Window move/resize events
-- `[Properties]` - Property retrieval and updates
-
-These debug messages help diagnose issues with window position tracking on Wayland.
-
-## Contributing
-
-This is a Go rewrite of the original Python application. Contributions are welcome!
 
 ## Version
 

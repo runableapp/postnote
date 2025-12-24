@@ -520,21 +520,26 @@ enables window position saving.
 🄯 2025 Vibe Coding @ Runable.App`
 
 	// Set Credit tab text (centered)
-	creditText := `PostNote is based on Indicator Stickynotes, 
-originally written in Python by Umang Varma.
+	creditText := `PostNote is based on Indicator Stickynotes, originally written in Python by Umang Varma. While I like the application, it unfortunately does not work properly on Wayland. PostNote is a modern rewrite in Go, designed specifically for Linux on Wayland, and developed with the assistance of AI. 
 
-It is a modern rewrite in Go, designed for 
-Linux on Wayland, 
-and developed with the assistance of AI.
-
-The design, color scheme, window layout, and icons are reused from Indicator Stickynotes.`
+	The design, color scheme, window layout, and icons are reused from Indicator Stickynotes, and it behaves in the same way.
+`
 
 	// Set License tab text (centered)
-	licenseText := `PostNote is free and open-source software, 
-released for unrestricted use.
+	licenseText := `PostNote is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ 
+PostNote is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+ 
+You should have received a copy of the GNU General Public License along with PostNote.  If not, see http://www.gnu.org/licenses/
 
-Feel free to use, modify, and distribute it as you wish.
-👍🏻 Thanks for using!`
+© 2025 Runable.App
+
+
+This application is based on indicator-stickynotes. PostNote borrows ideas, workflow, icons, and UI elements 
+from the original project. indicator-stickynotes is © 2012–2018 Umang Varma umang.me@gmail.com and its web site is https://launchpad.net/indicator-stickynotes/
+
+
+`
 
 	// Get text buffers and set text
 	if tvAbout != nil {
@@ -548,6 +553,40 @@ Feel free to use, modify, and distribute it as you wish.
 	if tvLicense != nil {
 		buffer, _ := tvLicense.GetBuffer()
 		buffer.SetText(licenseText)
+
+		// Add image at the end of license text
+		// Try to load from embedded resources first
+		iconData, err := GetEmbeddedIcon("runableapp.png")
+		var pixbuf *gdk.Pixbuf
+		if err == nil {
+			// Load from bytes using PixbufLoader
+			loader, err := gdk.PixbufLoaderNew()
+			if err == nil {
+				if _, err := loader.Write(iconData); err == nil {
+					loader.Close()
+					if loadedPixbuf, err := loader.GetPixbuf(); err == nil {
+						pixbuf = loadedPixbuf
+					}
+				}
+			}
+		} else {
+			// Fallback to file system
+			iconPath := filepath.Join(stickynotes.GetBasePath(), "Icons", "runableapp.png")
+			if _, err := os.Stat(iconPath); err == nil {
+				if loadedPixbuf, err := gdk.PixbufNewFromFile(iconPath); err == nil {
+					pixbuf = loadedPixbuf
+				}
+			}
+		}
+
+		// Insert image at the end of the text buffer
+		if pixbuf != nil {
+			iter := buffer.GetEndIter()
+			// Add a newline before the image so it appears on a new line
+			buffer.Insert(iter, "\n\n")
+			iter = buffer.GetEndIter()
+			buffer.InsertPixbuf(iter, pixbuf)
+		}
 	}
 
 	// Connect close button
