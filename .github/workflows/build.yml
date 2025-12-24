@@ -1,0 +1,95 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgtk-3-dev \
+          libayatana-appindicator3-dev \
+          pkg-config \
+          libgirepository1.0-dev \
+          gobject-introspection \
+          libgraphene-1.0-dev \
+          wget
+
+    - name: Install task
+      uses: arduino/setup-task@v1
+      with:
+        version: 3.x
+
+    - name: Setup pkg-config symlinks
+      run: |
+        mkdir -p build/.pkgconfig build/include/libappindicator
+        ln -sf /usr/lib/x86_64-linux-gnu/pkgconfig/ayatana-appindicator3-0.1.pc build/.pkgconfig/appindicator3-0.1.pc
+        ln -sf /usr/include/libayatana-appindicator3-0.1/libayatana-appindicator/app-indicator.h build/include/libappindicator/app-indicator.h
+
+    - name: Download Go dependencies
+      run: go mod download
+
+    - name: Build binary
+      env:
+        PKG_CONFIG_PATH: ${{ github.workspace }}/build/.pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig
+        CGO_CFLAGS: -I${{ github.workspace }}/build/include
+        CGO_ENABLED: "1"
+      run: |
+        mkdir -p bin
+        go build -ldflags '-s -w' -o bin/postnote .
+
+    - name: Build AppImage
+      env:
+        PKG_CONFIG_PATH: ${{ github.workspace }}/build/.pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig
+        CGO_CFLAGS: -I${{ github.workspace }}/build/include
+        CGO_ENABLED: "1"
+      run: |
+        chmod +x scripts/build-appimage.sh
+        ./scripts/build-appimage.sh
+
+    - name: Upload binary artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: postnote-binary
+        path: bin/postnote
+        retention-days: 30
+
+    - name: Upload AppImage artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: postnote-appimage
+        path: dist/postnote-*.AppImage
+        retention-days: 30
+
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          bin/postnote
+          dist/postnote-*.AppImage
+        generate_release_notes: true
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
