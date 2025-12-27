@@ -92,6 +92,34 @@ jobs:
           echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
         fi
 
+    - name: Find AppImage file
+      id: appimage
+      if: steps.release_tag.outputs.tag != ''
+      run: |
+        APPIMAGE_FILE=$(ls dist/postnote-*.AppImage 2>/dev/null | head -n 1)
+        if [ -z "$APPIMAGE_FILE" ]; then
+          echo "Error: AppImage file not found in dist/"
+          ls -la dist/ || echo "dist/ directory does not exist"
+          exit 1
+        fi
+        echo "file=$APPIMAGE_FILE" >> $GITHUB_OUTPUT
+        echo "Found AppImage: $APPIMAGE_FILE"
+
+    - name: Verify release files exist
+      if: steps.release_tag.outputs.tag != ''
+      run: |
+        if [ ! -f "bin/postnote" ]; then
+          echo "Error: bin/postnote not found"
+          exit 1
+        fi
+        if [ -z "${{ steps.appimage.outputs.file }}" ]; then
+          echo "Error: AppImage file not found"
+          exit 1
+        fi
+        echo "✅ All release files verified:"
+        ls -lh bin/postnote
+        ls -lh "${{ steps.appimage.outputs.file }}"
+
     - name: Create GitHub Release
       if: steps.release_tag.outputs.tag != ''
       uses: softprops/action-gh-release@v1
@@ -99,7 +127,7 @@ jobs:
         tag_name: ${{ steps.release_tag.outputs.tag }}
         files: |
           bin/postnote
-          dist/postnote-*.AppImage
+          ${{ steps.appimage.outputs.file }}
         generate_release_notes: true
         draft: false
         prerelease: false
