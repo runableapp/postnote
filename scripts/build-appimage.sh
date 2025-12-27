@@ -114,14 +114,41 @@ EOF
 
 chmod +x "$APPDIR/AppRun"
 
-# Download appimagetool if not present
+# Download and extract appimagetool if not present
 TOOLS_DIR="$SCRIPT_DIR/tools"
 mkdir -p "$TOOLS_DIR"
-APPIMAGETOOL="$TOOLS_DIR/appimagetool-x86_64.AppImage"
+APPIMAGETOOL_APPIMAGE="$TOOLS_DIR/appimagetool-x86_64.AppImage"
+APPIMAGETOOL_EXTRACTED="$TOOLS_DIR/appimagetool-extracted"
+APPIMAGETOOL="$APPIMAGETOOL_EXTRACTED/squashfs-root/appimagetool"
 
 if [ ! -f "$APPIMAGETOOL" ]; then
     echo "Downloading appimagetool..."
-    wget -q -O "$APPIMAGETOOL" https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+    if [ ! -f "$APPIMAGETOOL_APPIMAGE" ]; then
+        wget -q -O "$APPIMAGETOOL_APPIMAGE" https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+        chmod +x "$APPIMAGETOOL_APPIMAGE"
+    fi
+    echo "Extracting appimagetool (FUSE not available in CI)..."
+    rm -rf "$APPIMAGETOOL_EXTRACTED"
+    mkdir -p "$APPIMAGETOOL_EXTRACTED"
+    cd "$APPIMAGETOOL_EXTRACTED"
+    # Extract the AppImage using unsquashfs (AppImages are squashfs files)
+    # This works without FUSE
+    if command -v unsquashfs >/dev/null 2>&1; then
+        echo "Using unsquashfs to extract appimagetool..."
+        unsquashfs -d squashfs-root "$APPIMAGETOOL_APPIMAGE" >/dev/null 2>&1
+    else
+        # Fallback: try --appimage-extract (might work in some environments)
+        echo "unsquashfs not found, trying --appimage-extract..."
+        "$APPIMAGETOOL_APPIMAGE" --appimage-extract 2>&1 || {
+            echo "Error: Could not extract appimagetool. Please install squashfs-tools."
+            exit 1
+        }
+    fi
+    cd "$SCRIPT_DIR"
+    if [ ! -f "$APPIMAGETOOL" ]; then
+        echo "Error: Could not find extracted appimagetool binary"
+        exit 1
+    fi
     chmod +x "$APPIMAGETOOL"
 fi
 

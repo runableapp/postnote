@@ -37,7 +37,8 @@ jobs:
           libgirepository1.0-dev \
           gobject-introspection \
           libgraphene-1.0-dev \
-          wget
+          wget \
+          squashfs-tools
 
     - name: Install Task
       uses: go-task/setup-task@v1
@@ -96,10 +97,13 @@ jobs:
       id: appimage
       if: steps.release_tag.outputs.tag != ''
       run: |
+        echo "Looking for AppImage files in dist/..."
+        ls -la dist/ || echo "Warning: dist/ directory does not exist"
         APPIMAGE_FILE=$(ls dist/postnote-*.AppImage 2>/dev/null | head -n 1)
         if [ -z "$APPIMAGE_FILE" ]; then
           echo "Error: AppImage file not found in dist/"
-          ls -la dist/ || echo "dist/ directory does not exist"
+          echo "Contents of dist/ directory:"
+          ls -la dist/ 2>&1 || echo "dist/ directory does not exist"
           exit 1
         fi
         echo "file=$APPIMAGE_FILE" >> $GITHUB_OUTPUT
@@ -112,13 +116,20 @@ jobs:
           echo "Error: bin/postnote not found"
           exit 1
         fi
-        if [ -z "${{ steps.appimage.outputs.file }}" ]; then
-          echo "Error: AppImage file not found"
+        APPIMAGE_FILE="${{ steps.appimage.outputs.file }}"
+        if [ -z "$APPIMAGE_FILE" ]; then
+          echo "Error: AppImage file path is empty"
+          ls -la dist/ || echo "dist/ directory does not exist"
+          exit 1
+        fi
+        if [ ! -f "$APPIMAGE_FILE" ]; then
+          echo "Error: AppImage file not found: $APPIMAGE_FILE"
+          ls -la dist/ || echo "dist/ directory does not exist"
           exit 1
         fi
         echo "✅ All release files verified:"
         ls -lh bin/postnote
-        ls -lh "${{ steps.appimage.outputs.file }}"
+        ls -lh "$APPIMAGE_FILE"
 
     - name: Create GitHub Release
       if: steps.release_tag.outputs.tag != ''
