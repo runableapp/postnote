@@ -1,3 +1,5 @@
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G2G21R1BX8)
+
 # PostNote
 
 PostNote is a modern rewrite of the original [Indicator Stickynotes](https://launchpad.net/indicator-stickynotes) Python application, written in Go for better performance and Wayland compatibility.
@@ -7,7 +9,7 @@ PostNote is a modern rewrite of the original [Indicator Stickynotes](https://lau
 This is a Go-based rewrite of the original Python GTK3 application. The design, color scheme, window layout, and icons are reused from the original Indicator Stickynotes by Umang Varma.
 
 **Original Python version:** Written by Umang Varma  
-**Go version:** Developed with AI for Linux on Wayland
+**Go version:** Developed for Linux on Wayland
 
 ## Features
 
