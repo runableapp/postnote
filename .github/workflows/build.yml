@@ -79,7 +79,7 @@ jobs:
         # Create zip with executable permissions preserved
         zip postnote-linux-x86_64.zip postnote
         cd ..
-    
+
     - name: Upload binary artifact
       uses: actions/upload-artifact@v4
       with:
@@ -129,6 +129,19 @@ jobs:
         echo "file=$APPIMAGE_FILE" >> $GITHUB_OUTPUT
         echo "Found AppImage: $APPIMAGE_FILE"
 
+    - name: Package AppImage
+      if: steps.release_tag.outputs.tag != ''
+      run: |
+        APPIMAGE_FILE="${{ steps.appimage.outputs.file }}"
+        if [ -n "$APPIMAGE_FILE" ] && [ -f "$APPIMAGE_FILE" ]; then
+          APPIMAGE_NAME=$(basename "$APPIMAGE_FILE" .AppImage)
+          cd dist
+          zip "${APPIMAGE_NAME}.zip" "$(basename "$APPIMAGE_FILE")"
+          echo "appimage_zip=${APPIMAGE_NAME}.zip" >> $GITHUB_OUTPUT
+          cd ..
+        fi
+      id: package_appimage
+
     - name: Verify release files exist
       if: steps.release_tag.outputs.tag != ''
       run: |
@@ -140,21 +153,20 @@ jobs:
           echo "Error: bin/postnote-linux-x86_64.zip not found"
           exit 1
         fi
-        APPIMAGE_FILE="${{ steps.appimage.outputs.file }}"
-        if [ -z "$APPIMAGE_FILE" ]; then
-          echo "Error: AppImage file path is empty"
+        APPIMAGE_ZIP="${{ steps.package_appimage.outputs.appimage_zip }}"
+        if [ -z "$APPIMAGE_ZIP" ]; then
+          echo "Error: AppImage zip file path is empty"
           ls -la dist/ || echo "dist/ directory does not exist"
           exit 1
         fi
-        if [ ! -f "$APPIMAGE_FILE" ]; then
-          echo "Error: AppImage file not found: $APPIMAGE_FILE"
+        if [ ! -f "dist/$APPIMAGE_ZIP" ]; then
+          echo "Error: AppImage zip file not found: dist/$APPIMAGE_ZIP"
           ls -la dist/ || echo "dist/ directory does not exist"
           exit 1
         fi
         echo "✅ All release files verified:"
-        ls -lh bin/postnote
         ls -lh bin/postnote-linux-x86_64.zip
-        ls -lh "$APPIMAGE_FILE"
+        ls -lh "dist/$APPIMAGE_ZIP"
 
     - name: Create GitHub Release
       if: steps.release_tag.outputs.tag != ''
@@ -164,7 +176,7 @@ jobs:
         name: Release ${{ steps.release_tag.outputs.tag }}
         files: |
           bin/postnote-linux-x86_64.zip
-          ${{ steps.appimage.outputs.file }}
+          dist/${{ steps.package_appimage.outputs.appimage_zip }}
         generate_release_notes: true
         draft: false
         prerelease: false
