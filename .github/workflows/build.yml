@@ -37,8 +37,7 @@ jobs:
           libgirepository1.0-dev \
           gobject-introspection \
           libgraphene-1.0-dev \
-          wget \
-          squashfs-tools
+          wget
 
     - name: Install Task
       uses: go-task/setup-task@v1
